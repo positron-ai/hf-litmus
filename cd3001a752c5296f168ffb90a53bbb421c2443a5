@@ -1,0 +1,23 @@
+README.md
+  4bbef14bd83d52b6 1-158
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.11",
+  "base_commit_sha": "cd3001a752c5296f168ffb90a53bbb421c2443a5",
+  "prompts": {
+    "4bbef14bd83d52b6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "289b37ae-0dfc-4ca4-aec8-96c2634057ed",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "John Wiegley <johnw@newartisans.com>",
+      "messages": [],
+      "total_additions": 316,
+      "total_deletions": 0,
+      "accepted_lines": 158,
+      "overriden_lines": 0
+    }
+  }
+}
