@@ -1,0 +1,3 @@
+[submodule "litmus-outputs"]
+	path = litmus-outputs
+	url = https://github.com/positron-ai/litmus-outputs.git
