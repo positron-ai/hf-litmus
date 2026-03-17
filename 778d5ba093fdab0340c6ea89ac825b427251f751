@@ -1,0 +1,33 @@
+hf_litmus/cli.py
+  4bbef14bd83d52b6 5,176-187,196-217,220,244,304-305,310-316,324
+hf_litmus/config.py
+  4bbef14bd83d52b6 28
+hf_litmus/orchestrator.py
+  4bbef14bd83d52b6 49,51-55,61-62,81-86,104
+hf_litmus/deep_analysis.py
+  4bbef14bd83d52b6 388
+hf_litmus/dashboard.py
+  4bbef14bd83d52b6 217-231,247-251,258,2189-2190,2193,2196,2204-2205,2208,2239-2240,2254-2256,2262-2263,2270,2303-2304,2307,2350,2362,2367-2369,2375-2376,2386,2771,2777-2778
+.gitignore
+  4bbef14bd83d52b6 1-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.11",
+  "base_commit_sha": "778d5ba093fdab0340c6ea89ac825b427251f751",
+  "prompts": {
+    "4bbef14bd83d52b6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "289b37ae-0dfc-4ca4-aec8-96c2634057ed",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "John Wiegley <johnw@newartisans.com>",
+      "messages": [],
+      "total_additions": 324,
+      "total_deletions": 108,
+      "accepted_lines": 135,
+      "overriden_lines": 0
+    }
+  }
+}
