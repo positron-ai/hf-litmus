@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+
+# Runtime output
+litmus-output/
+
+# uv lock files (managed by uv, not version-controlled for export)
+# Note: ingest/export/uv.lock IS version-controlled
+hf_litmus.egg-info/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store

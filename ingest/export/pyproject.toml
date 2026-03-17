@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "torch-export"
+version = "0.1.0"
+description = "Export PyTorch models to Fx graph format for ingestion"
+requires-python = ">=3.10"
+dependencies = [
+  "torch>=2.9,<2.10",  # 2.10 breaks our tracing with some weird guard check.
+  "transformers>=5.2,<5.3",
+  "accelerate>=1.10,<1.11",
+  "hf-transfer>=0.1.4",
+  "protobuf>=3.20.0",
+  "sentencepiece>=0.1.99",
+  "tiktoken>=0.7.0",
+  "Pillow>=10.0",
+  "timm>=0.9",
+]
+
+[project.scripts]
+torch-export = "torch_export:main"
+
+[tool.setuptools]
+py-modules = ["torch_export", "gpt_oss_export", "glm4_moe_export", "model_patch", "moe_ops", "minimax_m2_export"]
