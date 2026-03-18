@@ -7,7 +7,7 @@ import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from .config import LitmusConfig
+from .config import DEFAULT_TRON_URL, LitmusConfig
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -173,15 +173,14 @@ def create_parser() -> argparse.ArgumentParser:
     help="Timeout for Haskell ingest in seconds",
   )
   parser.add_argument(
-    "--tron-root",
-    type=Path,
+    "--tron-url",
+    type=str,
     default=None,
     help=(
-      "Path to Tron repository root."
-      " Enables Haskell ingest pipeline."
-      " Also read from LITMUS_TRON_ROOT env var."
-      " Auto-detected if ingest/cabal.project"
-      " is found in a parent directory."
+      "URL of the Tron git repository."
+      " Overrides LITMUS_TRON_URL env var."
+      " Tron is cloned on demand when ingest"
+      " or deep analysis is needed."
     ),
   )
   parser.add_argument(
@@ -193,31 +192,17 @@ def create_parser() -> argparse.ArgumentParser:
   return parser
 
 
-def _autodetect_tron_root() -> Path | None:
-  """Walk up from cwd looking for ingest/cabal.project."""
-  candidate = Path.cwd().resolve()
-  while candidate != candidate.parent:
-    if (candidate / "ingest" / "cabal.project").exists():
-      return candidate
-    candidate = candidate.parent
-  return None
-
-
-def _resolve_tron_root(
-  arg: Path | None,
-) -> Path | None:
-  """Resolve tron_root from arg, env, autodetect, or None."""
+def _resolve_tron_url(arg: str | None) -> str:
+  """Resolve tron_url from arg, env, or default."""
   if arg is not None:
-    return arg.resolve()
-  env = os.environ.get("LITMUS_TRON_ROOT")
-  if env:
-    return Path(env).resolve()
-  return _autodetect_tron_root()
+    return arg
+  return (
+    os.environ.get("LITMUS_TRON_URL") or DEFAULT_TRON_URL
+  )
 
 
 def config_from_args(
   args: argparse.Namespace,
-  tron_root: Path | None = None,
 ) -> LitmusConfig:
   # --daemon overrides --once
   single_run = args.once and not args.daemon
@@ -241,7 +226,7 @@ def config_from_args(
     notion_mcp_url=args.notion_mcp_url,
     notion_parent_page_id=args.notion_parent_id,
     verbose=args.verbose,
-    tron_root=tron_root,
+    tron_url=_resolve_tron_url(args.tron_url),
   )
 
 
@@ -301,18 +286,10 @@ def main() -> int:
 
   parser = create_parser()
   args = parser.parse_args()
-  tron_root = _resolve_tron_root(args.tron_root)
-  config = config_from_args(args, tron_root=tron_root)
+  config = config_from_args(args)
 
   config.output_dir.mkdir(parents=True, exist_ok=True)
   setup_logging(config.output_dir, config.verbose)
-
-  if tron_root is None:
-    logging.warning(
-      "tron_root not set: Haskell ingest will not"
-      " be available. Use --tron-root or set"
-      " LITMUS_TRON_ROOT to enable it."
-    )
 
   from .exceptions import DependencyError, LitmusError
   from .orchestrator import (
@@ -321,14 +298,13 @@ def main() -> int:
   )
 
   try:
-    check_dependencies(tron_root=tron_root)
+    check_dependencies()
   except DependencyError as e:
     logging.error("Missing dependencies:\n%s", e)
     return 1
 
+  orchestrator = LitmusOrchestrator(config)
   try:
-    orchestrator = LitmusOrchestrator(config)
-
     if config.model_file:
       models = _read_model_file(config.model_file)
       if not models:
@@ -361,6 +337,8 @@ def main() -> int:
   except (KeyboardInterrupt, SystemExit):
     logging.info("Interrupted")
     return 130
+  finally:
+    orchestrator.cleanup()
 
   return 0
 

@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -89,16 +90,15 @@ def _stage_section_name(
 class DeepAnalyzer:
   def __init__(
     self,
-    tron_root: Path,
+    tron_url: str,
     output_dir: Path,
     timeout: int = 900,
     consensus_review: bool = False,
   ) -> None:
-    self.tron_root = tron_root.resolve()
+    self.tron_url = tron_url
     self.output_dir = output_dir
     self.timeout = timeout
     self.consensus_review = consensus_review
-    self.worktree_base = self.tron_root.parent
     self._template = load_prompt_template()
 
   def analyze(
@@ -106,23 +106,61 @@ class DeepAnalyzer:
     model_id: str,
     result: ModelResult,
   ) -> AnalysisResult:
-    """Run deep analysis on a failed model."""
+    """Run deep analysis on a failed model.
+
+    Clones Tron into a temporary directory, creates a
+    git worktree for the analysis, runs Claude Code,
+    collects results, then removes the temp directory.
+    """
     sanitized = _sanitize_model_id(model_id)
     branch = f"litmus/{sanitized}"
-    worktree_path = self.worktree_base / f"hf-litmus-{sanitized}"
     analysis_dir = self.output_dir / "analyses" / sanitized
 
     logger.info(
       "Starting deep analysis of %s", model_id
     )
 
+    tmpdir = tempfile.mkdtemp(prefix="litmus_analysis_")
+    tron_path = Path(tmpdir) / "tron"
+    worktree_path = Path(tmpdir) / f"hf-litmus-{sanitized}"
+
     try:
-      self._setup_worktree(worktree_path, branch)
+      logger.info(
+        "Cloning Tron for analysis of %s", model_id
+      )
+      clone_result = subprocess.run(
+        [
+          "git", "clone", "--depth=1",
+          self.tron_url, str(tron_path),
+        ],
+        capture_output=True,
+        text=True,
+      )
+      if clone_result.returncode != 0:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+        return AnalysisResult(
+          model_id=model_id,
+          error=(
+            f"Tron clone failed: {clone_result.stderr}"
+          ),
+        )
+    except Exception as e:
+      shutil.rmtree(tmpdir, ignore_errors=True)
+      return AnalysisResult(
+        model_id=model_id,
+        error=f"Tron clone failed: {e}",
+      )
+
+    try:
+      self._setup_worktree(
+        tron_path, worktree_path, branch
+      )
     except Exception as e:
       logger.error(
         "Failed to create worktree for %s: %s",
         model_id, e,
       )
+      shutil.rmtree(tmpdir, ignore_errors=True)
       return AnalysisResult(
         model_id=model_id,
         error=f"Worktree creation failed: {e}",
@@ -141,9 +179,9 @@ class DeepAnalyzer:
         "Claude Code failed for %s: %s",
         model_id, e,
       )
+      shutil.rmtree(tmpdir, ignore_errors=True)
       return AnalysisResult(
         model_id=model_id,
-        worktree_path=worktree_path,
         worktree_branch=branch,
         error=f"Claude Code failed: {e}",
       )
@@ -155,49 +193,32 @@ class DeepAnalyzer:
       )
 
     ar = self._collect_results(
-      model_id, worktree_path, branch,
-      analysis_dir,
+      model_id, worktree_path, branch, analysis_dir,
     )
     if run_error and not ar.error:
       ar.error = run_error
+
+    # Results are already copied to analysis_dir;
+    # clean up the temporary Tron clone.
+    shutil.rmtree(tmpdir, ignore_errors=True)
+    ar.worktree_path = None
+
     return ar
 
   def _setup_worktree(
     self,
+    tron_root: Path,
     worktree_path: Path,
     branch: str,
   ) -> None:
-    """Create or reset a git worktree."""
-    if worktree_path.exists():
-      logger.info(
-        "Removing existing worktree %s",
-        worktree_path,
-      )
-      subprocess.run(
-        [
-          "git", "worktree", "remove",
-          "--force", str(worktree_path),
-        ],
-        cwd=str(self.tron_root),
-        capture_output=True,
-      )
-      if worktree_path.exists():
-        shutil.rmtree(worktree_path)
-
-    # Delete branch if it exists
-    subprocess.run(
-      ["git", "branch", "-D", branch],
-      cwd=str(self.tron_root),
-      capture_output=True,
-    )
-
+    """Create a git worktree from a Tron clone."""
     result = subprocess.run(
       [
         "git", "worktree", "add",
         "-b", branch,
         str(worktree_path), "HEAD",
       ],
-      cwd=str(self.tron_root),
+      cwd=str(tron_root),
       capture_output=True,
       text=True,
     )

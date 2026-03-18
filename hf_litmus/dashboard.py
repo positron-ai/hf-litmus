@@ -42,123 +42,6 @@ _MAX_ANALYSIS_LINES = 10_000
 # Maximum completed retry jobs to keep
 _MAX_COMPLETED_JOBS = 200
 
-# Module-level lock for environment preparation
-_env_prep_lock = threading.Lock()
-
-
-def _prepare_environment(
-  tron_root: Path,
-  log_callback: Callable[[str], None] | None = None,
-) -> tuple[bool, str]:
-  """Prepare environment for model analysis.
-
-  Pulls latest Tron changes from GitHub and rebuilds
-  ingest if the codebase changed. Serialized with a lock
-  to prevent concurrent git/build operations.
-
-  Args:
-    tron_root: Path to Tron repository root
-    log_callback: Optional callback for progress messages
-
-  Returns:
-    (success, error_message) tuple
-  """
-  # Check bypass flag for development
-  if os.environ.get("LITMUS_SKIP_UPDATE") == "1":
-    return (True, "")
-
-  with _env_prep_lock:
-
-    def log(msg: str) -> None:
-      logger.info(msg)
-      if log_callback:
-        log_callback(msg)
-
-    try:
-      # Check for uncommitted changes
-      log("Checking git status...")
-      result = subprocess.run(
-        ["git", "status", "--porcelain"],
-        cwd=str(tron_root),
-        capture_output=True,
-        text=True,
-        timeout=30,
-      )
-      if result.stdout.strip():
-        msg = "Cannot update: working tree has uncommitted changes"
-        log(msg)
-        return (False, msg)
-
-      # Get current HEAD before pull
-      before_head = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=str(tron_root),
-        capture_output=True,
-        text=True,
-        timeout=30,
-      ).stdout.strip()
-
-      # Pull latest changes
-      log("Pulling latest changes from GitHub...")
-      result = subprocess.run(
-        ["git", "pull"],
-        cwd=str(tron_root),
-        capture_output=True,
-        text=True,
-        timeout=300,
-      )
-      if result.returncode != 0:
-        msg = f"Git pull failed: {result.stderr}"
-        log(msg)
-        return (False, msg)
-
-      # Get HEAD after pull
-      after_head = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=str(tron_root),
-        capture_output=True,
-        text=True,
-        timeout=30,
-      ).stdout.strip()
-
-      # Check if HEAD changed
-      if before_head == after_head:
-        log("Already up to date, skipping rebuild")
-        return (True, "")
-
-      log(f"Updated to {after_head[:8]}, rebuilding ingest...")
-
-      # Rebuild ingest under nix develop
-      result = subprocess.run(
-        [
-          "nix",
-          "develop",
-          "--command",
-          "cabal",
-          "build",
-        ],
-        cwd=str(tron_root / "ingest"),
-        capture_output=True,
-        text=True,
-        timeout=1800,  # 30 minutes
-      )
-      if result.returncode != 0:
-        stderr_tail = result.stderr[-500:] if result.stderr else ""
-        msg = f"Ingest build failed: {stderr_tail}"
-        log(msg)
-        return (False, msg)
-
-      log("Environment prepared successfully")
-      return (True, "")
-
-    except subprocess.TimeoutExpired as e:
-      msg = f"Environment preparation timed out: {e}"
-      log(msg)
-      return (False, msg)
-    except Exception as e:
-      msg = f"Environment preparation error: {e}"
-      log(msg)
-      return (False, msg)
 
 
 def create_dashboard_parser() -> argparse.ArgumentParser:
@@ -214,21 +97,6 @@ def create_dashboard_parser() -> argparse.ArgumentParser:
     default=15,
     help=("Minutes between report rescans when serving (--serve)"),
   )
-  parser.add_argument(
-    "--tron-root",
-    type=Path,
-    default=(
-      Path(os.environ["LITMUS_TRON_ROOT"])
-      if os.environ.get("LITMUS_TRON_ROOT")
-      else None
-    ),
-    help=(
-      "Path to Tron repository root."
-      " Enables environment preparation and"
-      " Haskell ingest for retry/analysis jobs."
-      " Also read from LITMUS_TRON_ROOT env var."
-    ),
-  )
   return parser
 
 
@@ -244,18 +112,12 @@ def dashboard_main(argv: list[str]) -> int:
     )
     return 1
 
-  tron_root = (
-    args.tron_root.resolve()
-    if args.tron_root is not None
-    else None
-  )
   if args.serve:
     return _serve_dashboard(
       args.output_dir,
       args.sort,
       args.port,
       args.refresh_interval,
-      tron_root=tron_root,
     )
 
   reports = _load_reports(reports_dir)
@@ -2186,26 +2048,14 @@ def _render_markdown_page(
 # -- HTTP server ---------------------------------------------------
 
 
-def _find_tron_root(start: Path) -> Path | None:
-  """Find Tron repo root by walking up to ingest/cabal.project."""
-  candidate = start.resolve()
-  while candidate != candidate.parent:
-    if (candidate / "ingest" / "cabal.project").exists():
-      return candidate
-    candidate = candidate.parent
-  return None
-
-
 class _RetryTracker:
   """Track background retry jobs."""
 
   def __init__(
     self,
     output_dir: Path,
-    tron_root: Path | None = None,
   ) -> None:
     self.output_dir = output_dir
-    self.tron_root = tron_root
     self._lock = threading.Lock()
     self._jobs: dict[str, str] = {}
     self._pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="retry")
@@ -2235,20 +2085,6 @@ class _RetryTracker:
 
   def _run(self, model_id: str) -> None:
     try:
-      # Prepare environment: pull latest changes
-      # and rebuild ingest (only when tron_root is known)
-      if self.tron_root is not None:
-        success, error = _prepare_environment(self.tron_root)
-        if not success:
-          with self._lock:
-            self._jobs[model_id] = "error"
-          logger.warning(
-            "Environment preparation failed for %s: %s",
-            model_id,
-            error,
-          )
-          return
-
       out_dir = str(self.output_dir.resolve())
       cmd = [
         sys.executable,
@@ -2259,15 +2095,12 @@ class _RetryTracker:
         "--output-dir",
         out_dir,
       ]
-      if self.tron_root is not None:
-        cmd += ["--tron-root", str(self.tron_root)]
       logger.info("Retry started: %s", model_id)
       result = subprocess.run(
         cmd,
         capture_output=True,
         text=True,
         timeout=7200,
-        cwd=str(self.tron_root) if self.tron_root else None,
       )
       if result.returncode == 0:
         with self._lock:
@@ -2301,10 +2134,8 @@ class _AnalysisTracker:
   def __init__(
     self,
     output_dir: Path,
-    tron_root: Path | None = None,
   ) -> None:
     self.output_dir = output_dir
-    self.tron_root = tron_root
     self._lock = threading.Lock()
     self._model: str = ""
     self._status: str = "idle"  # idle/running/done/error
@@ -2347,21 +2178,6 @@ class _AnalysisTracker:
           if len(self._lines) < _MAX_ANALYSIS_LINES:
             self._lines.append(msg)
 
-      if self.tron_root is not None:
-        success, error = _prepare_environment(
-          self.tron_root, log_line
-        )
-        if not success:
-          with self._lock:
-            self._status = "error"
-            self._lines.append(f"Environment preparation failed: {error}")
-          logger.warning(
-            "Environment preparation failed for %s: %s",
-            model_id,
-            error,
-          )
-          return
-
       out_dir = str(self.output_dir.resolve())
       cmd = [
         sys.executable,
@@ -2372,8 +2188,6 @@ class _AnalysisTracker:
         "--output-dir",
         out_dir,
       ]
-      if self.tron_root is not None:
-        cmd += ["--tron-root", str(self.tron_root)]
       logger.info("Analysis started: %s", model_id)
       with self._lock:
         self._lines.append(f"Starting analysis for {model_id}...")
@@ -2383,7 +2197,6 @@ class _AnalysisTracker:
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
-        cwd=str(self.tron_root) if self.tron_root else None,
       )
       self._proc = proc
       deadline = time.monotonic() + self._TIMEOUT
@@ -2768,14 +2581,13 @@ def _serve_dashboard(
   sort: str,
   port: int,
   refresh_minutes: int,
-  tron_root: Path | None = None,
 ) -> int:
   """Run a local HTTP server with auto-refresh."""
   reports_dir = output_dir / "reports"
   _DashboardHandler.reports_dir = reports_dir
   _DashboardHandler.analyses_dir = output_dir / "analyses"
-  _DashboardHandler.retry_tracker = _RetryTracker(output_dir, tron_root=tron_root)
-  _DashboardHandler.analysis_tracker = _AnalysisTracker(output_dir, tron_root=tron_root)
+  _DashboardHandler.retry_tracker = _RetryTracker(output_dir)
+  _DashboardHandler.analysis_tracker = _AnalysisTracker(output_dir)
   auth_token = secrets.token_urlsafe(32)
   _DashboardHandler.auth_token = auth_token
   refresh_secs = refresh_minutes * 60

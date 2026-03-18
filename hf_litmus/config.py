@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+DEFAULT_TRON_URL = "https://github.com/positron-ai/tron.git"
+
 
 @dataclass
 class LitmusConfig:
@@ -25,4 +27,4 @@ class LitmusConfig:
   notion_mcp_url: str | None = None
   notion_parent_page_id: str | None = None
   verbose: bool = False
-  tron_root: Path | None = None
+  tron_url: str = DEFAULT_TRON_URL

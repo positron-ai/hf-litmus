@@ -8,8 +8,8 @@ compatibility gaps, and optionally launches Claude Code for deep failure analysi
 ## Features
 
 - **Batch enumeration** of HuggingFace Hub models by trending/recent activity
-- **Export testing** via `torch.export` with bundled export scripts (no Tron checkout needed)
-- **Full pipeline testing** through Haskell ingest when a Tron checkout is available
+- **Export testing** via `torch.export` with bundled export scripts
+- **Full pipeline testing** through Haskell ingest (Tron is cloned on demand)
 - **Deep analysis** using Claude Code in git worktrees with multi-model consensus review
 - **Interactive dashboard** with live retry, model search, and analysis submission
 - **Report generation** per-model and aggregate summary with failure classification
@@ -19,10 +19,10 @@ compatibility gaps, and optionally launches Claude Code for deep failure analysi
 
 - Python 3.10+
 - [uv](https://docs.astral.sh/uv/) (for managing export script dependencies)
+- [git](https://git-scm.com/) (for on-demand Tron cloning during ingest and deep analysis)
 
-For full pipeline testing (export + Haskell ingest):
-- A [Tron](https://github.com/positron-ai/tron) checkout
-- GHC and Cabal (available via `nix develop` from the Tron repo)
+For full pipeline testing (export + Haskell ingest), the Tron clone must have
+GHC and Cabal available (i.e., run inside `nix develop` from the Tron repo).
 
 For deep analysis:
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI
@@ -42,30 +42,15 @@ uv pip install -e '.[notion]'
 
 ## Quick Start
 
-### Export-only mode (no Tron checkout required)
-
-Test whether a model can be exported via `torch.export`:
+### Test a single model
 
 ```bash
 hf-litmus --model meta-llama/Llama-3.1-8B
 ```
 
-### Full pipeline mode (with Tron checkout)
-
-Test export + Haskell ingest:
-
-```bash
-# Option 1: Explicit path
-hf-litmus --model meta-llama/Llama-3.1-8B --tron-root ~/tron
-
-# Option 2: Environment variable
-export LITMUS_TRON_ROOT=~/tron
-hf-litmus --model meta-llama/Llama-3.1-8B
-
-# Option 3: Auto-detect (run from within a Tron checkout)
-cd ~/tron
-hf-litmus --model meta-llama/Llama-3.1-8B
-```
+This runs the full pipeline: torch.export (using bundled scripts) then Haskell
+ingest (Tron is cloned automatically from GitHub). On first ingest, expect a
+short delay while Tron is cloned.
 
 ### Batch processing
 
@@ -83,35 +68,36 @@ hf-litmus --no-once --interval 30
 ### Dashboard
 
 ```bash
-# Launch the web dashboard
 hf-litmus dashboard --serve --output-dir ./litmus-output
-
-# With Tron integration (enables retry and analysis features)
-hf-litmus dashboard --serve --output-dir ./litmus-output --tron-root ~/tron
 ```
 
 ## Configuration
 
-### Tron Root Resolution
+### Tron URL
 
-The `--tron-root` argument tells hf-litmus where to find the Tron repository.
-Resolution precedence:
+hf-litmus clones Tron on demand whenever ingest or deep analysis is needed.
+By default it clones from `https://github.com/positron-ai/tron.git`. Override with:
 
-1. `--tron-root` CLI argument
-2. `LITMUS_TRON_ROOT` environment variable
-3. Auto-detection: walks up from the current directory looking for `ingest/cabal.project`
-4. None (export-only mode; Haskell ingest and deep analysis are disabled)
+```bash
+# CLI flag
+hf-litmus --tron-url https://github.com/your-fork/tron.git --model my/model
 
-When `--tron-root` is provided, hf-litmus uses the Tron checkout's `ingest/export/`
-scripts and `cabal run ingest` for the Haskell pipeline. When unavailable, it falls
-back to the bundled export scripts in `ingest/export/` within this repository.
+# Environment variable
+export LITMUS_TRON_URL=https://github.com/your-fork/tron.git
+hf-litmus --model my/model
+```
+
+A shallow clone (`--depth=1`) is used. For ingest, one clone is reused across
+all models in a session and cleaned up on exit. For deep analysis, each model
+gets its own fresh clone (with an isolated git worktree) that is removed after
+results are collected.
 
 ### CLI Options
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--output-dir` | `./litmus-output` | Directory for reports and state |
-| `--tron-root` | auto-detect | Path to Tron repository |
+| `--tron-url` | GitHub URL | Tron repository URL for on-demand cloning |
 | `--model` | — | Test a specific model by HF ID |
 | `--model-file` | — | File with model IDs (one per line) |
 | `--batch-size` | 100 | Models per batch |
@@ -119,6 +105,7 @@ back to the bundled export scripts in `ingest/export/` within this repository.
 | `--once/--no-once` | `--once` | Single batch vs continuous |
 | `--daemon` | off | Continuous mode (alias for `--no-once`) |
 | `--deep-analysis/--no-deep-analysis` | on | Claude Code failure analysis |
+| `--deep-analysis-timeout` | 7200 | Seconds for Claude Code session |
 | `--consensus-review/--no-consensus-review` | on | Multi-model review during analysis |
 | `--hf-token` | — | HuggingFace token for gated models |
 | `--export-timeout` | 600 | Seconds for torch.export |
@@ -134,10 +121,10 @@ hf-litmus/
 │   ├── orchestrator.py # Core pipeline orchestration
 │   ├── dashboard.py    # Web dashboard + HTTP server
 │   ├── deep_analysis.py# Claude Code integration
+│   ├── ingest/         # Bundled export tooling
+│   │   ├── export/     # torch.export scripts + uv project
+│   │   └── runtime/    # Shared Python utilities
 │   └── ...
-├── ingest/             # Bundled export tooling (from Tron)
-│   ├── export/         # torch.export scripts + uv project
-│   └── runtime/        # Shared Python utilities
 ├── litmus-outputs/     # Submodule: persistent results repo
 ├── pyproject.toml
 └── README.md

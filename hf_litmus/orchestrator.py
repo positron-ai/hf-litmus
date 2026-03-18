@@ -5,6 +5,7 @@ import logging
 import os
 import shutil
 import signal
+import subprocess
 import tempfile
 import threading
 import time
@@ -45,25 +46,28 @@ logger = logging.getLogger(__name__)
 _deep_analyzer = None
 
 
-def check_dependencies(
-  tron_root: Path | None = None,
-) -> None:
+def check_dependencies() -> None:
   """Verify required tools are available.
 
-  cabal/ghc are only required when tron_root is
-  provided (Haskell ingest pipeline).
+  Only uv and git are hard requirements. cabal/ghc are
+  checked at runtime and ingest is skipped if absent.
   """
   errors: list[str] = []
 
-  if not (os.environ.get("UV") or shutil.which("uv") or Path("/tools/uv/uv").exists()):
-    errors.append("uv not found. Install from https://docs.astral.sh/uv/")
+  if not (
+    os.environ.get("UV")
+    or shutil.which("uv")
+    or Path("/tools/uv/uv").exists()
+  ):
+    errors.append(
+      "uv not found. Install from https://docs.astral.sh/uv/"
+    )
 
-  if tron_root is not None:
-    if not (os.environ.get("CABAL_INSTALL") or shutil.which("cabal")):
-      errors.append("cabal not found. Run from 'nix develop' or install GHCup.")
-
-    if not (os.environ.get("GHC") or shutil.which("ghc")):
-      errors.append("ghc not found. Run from 'nix develop' or install GHCup.")
+  if not shutil.which("git"):
+    errors.append(
+      "git not found. Install git to enable Tron"
+      " cloning for ingest and deep analysis."
+    )
 
   if errors:
     raise DependencyError("\n".join(errors))
@@ -78,21 +82,13 @@ class LitmusOrchestrator:
       sort=config.sort_mode,
     )
 
-    tron_root = config.tron_root
-    if tron_root is not None:
-      self.ingest_dir = tron_root / "ingest"
-    else:
-      # Bundled ingest scripts (export only; Haskell ingest unavailable)
-      self.ingest_dir = Path(__file__).resolve().parent.parent / "ingest"
-
-    self.export_runner = ExportRunner(
-      ingest_dir=self.ingest_dir,
-      timeout=config.export_timeout,
+    # Export always uses the bundled ingest/export/ scripts.
+    bundled_ingest = (
+      Path(__file__).resolve().parent / "ingest"
     )
-    self.ingest_runner = IngestRunner(
-      ingest_dir=self.ingest_dir,
-      timeout=config.ingest_timeout,
-      dump_intermediates=config.dump_intermediates,
+    self.export_runner = ExportRunner(
+      ingest_dir=bundled_ingest,
+      timeout=config.export_timeout,
     )
 
     self._shutdown = False
@@ -100,12 +96,18 @@ class LitmusOrchestrator:
     self._retry_lock = threading.Lock()
     self._retry_set: set[str] = set()
     self._retry_path = config.output_dir / "retry.txt"
+
+    # Lazy Tron clone for ingest (one per session).
+    self._tron_clone_lock = threading.Lock()
+    self._tron_tmpdir: str | None = None
+    self._tron_clone_path: Path | None = None
+
     self._deep_analyzer = None
-    if config.deep_analysis and tron_root is not None:
+    if config.deep_analysis:
       from .deep_analysis import DeepAnalyzer
 
       self._deep_analyzer = DeepAnalyzer(
-        tron_root=tron_root,
+        tron_url=config.tron_url,
         output_dir=config.output_dir,
         timeout=config.deep_analysis_timeout,
         consensus_review=config.consensus_review,
@@ -133,6 +135,50 @@ class LitmusOrchestrator:
           " Install with:"
           " pip install 'hf-litmus[notion]'"
         )
+
+  def _get_tron_clone(self) -> Path:
+    """Lazily clone Tron once per session when first needed."""
+    with self._tron_clone_lock:
+      if self._tron_clone_path is None:
+        self._tron_tmpdir = tempfile.mkdtemp(
+          prefix="litmus_tron_"
+        )
+        tron_path = Path(self._tron_tmpdir) / "tron"
+        logger.info(
+          "Cloning Tron from %s...",
+          self.config.tron_url,
+        )
+        result = subprocess.run(
+          [
+            "git", "clone", "--depth=1",
+            self.config.tron_url, str(tron_path),
+          ],
+          capture_output=True,
+          text=True,
+        )
+        if result.returncode != 0:
+          shutil.rmtree(
+            self._tron_tmpdir, ignore_errors=True
+          )
+          self._tron_tmpdir = None
+          raise RuntimeError(
+            f"Failed to clone Tron: {result.stderr}"
+          )
+        self._tron_clone_path = tron_path
+        logger.info(
+          "Tron cloned to %s", tron_path
+        )
+      return self._tron_clone_path
+
+  def cleanup(self) -> None:
+    """Remove the temporary Tron clone if one was created."""
+    with self._tron_clone_lock:
+      if self._tron_tmpdir:
+        shutil.rmtree(
+          self._tron_tmpdir, ignore_errors=True
+        )
+        self._tron_tmpdir = None
+        self._tron_clone_path = None
 
   def _compute_model_tags(self, trace_dir: Path) -> list[str]:
     """Derive model feature tags from metadata."""
@@ -260,11 +306,27 @@ class LitmusOrchestrator:
       # Extract model feature tags from metadata
       result.model_tags = self._compute_model_tags(trace_dir)
 
-      # Step 2: Ingest
+      # Step 2: Ingest (requires Tron clone with cabal/ghc)
+      try:
+        tron_path = self._get_tron_clone()
+      except Exception as e:
+        logger.warning(
+          "Skipping ingest for %s: %s",
+          model_id, e,
+        )
+        result.status = ModelStatus.SUCCESS
+        return result
+
+      ingest_runner = IngestRunner(
+        ingest_dir=tron_path / "ingest",
+        timeout=self.config.ingest_timeout,
+        dump_intermediates=self.config.dump_intermediates,
+      )
+
       model_name = model_id.replace("/", "_").replace(".", "_").replace("-", "_")
       model_name = f"litmus_{model_name}"
 
-      ingest_result = self.ingest_runner.run_ingest(trace_dir, model_name)
+      ingest_result = ingest_runner.run_ingest(trace_dir, model_name)
 
       if not ingest_result.success:
         cls = classify_ingest_error(
