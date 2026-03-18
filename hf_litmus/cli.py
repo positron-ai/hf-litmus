@@ -263,6 +263,12 @@ def main() -> int:
 
         return dashboard_main(sys.argv[2:])
 
+    # Dispatch to report subcommand if requested
+    if len(sys.argv) > 1 and sys.argv[1] == "report":
+        from .dashboard import report_main
+
+        return report_main(sys.argv[2:])
+
     parser = create_parser()
     args = parser.parse_args()
     config = config_from_args(args)

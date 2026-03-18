@@ -44,13 +44,80 @@ _MAX_COMPLETED_JOBS = 200
 def create_dashboard_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="hf-litmus dashboard",
-        description=("Summarize model compatibility from JSON reports"),
+        description=(
+            "Start a local HTTP server to view the"
+            " compatibility dashboard in a browser"
+        ),
         formatter_class=(argparse.ArgumentDefaultsHelpFormatter),
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("./litmus-output"),
+        default=Path("./litmus-outputs"),
+        help="Directory containing reports/",
+    )
+    parser.add_argument(
+        "--sort",
+        choices=["verdict", "name", "downloads", "ops"],
+        default="verdict",
+        help="Sort order for failing models",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8150,
+        help="Port for the HTTP server",
+    )
+    parser.add_argument(
+        "--refresh-interval",
+        type=int,
+        default=15,
+        help="Minutes between report rescans",
+    )
+    parser.add_argument(
+        "--tron-url",
+        type=str,
+        default=None,
+        help=(
+            "URL of the Tron git repository."
+            " Passed to retry/analysis subprocesses."
+            " Overrides LITMUS_TRON_URL env var."
+        ),
+    )
+    return parser
+
+
+def dashboard_main(argv: list[str]) -> int:
+    parser = create_dashboard_parser()
+    args = parser.parse_args(argv)
+
+    reports_dir = args.output_dir / "reports"
+    if not reports_dir.exists():
+        print(
+            f"No reports directory found at {reports_dir}",
+            file=sys.stderr,
+        )
+        return 1
+
+    return _serve_dashboard(
+        args.output_dir,
+        args.sort,
+        args.port,
+        args.refresh_interval,
+        tron_url=args.tron_url,
+    )
+
+
+def create_report_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="hf-litmus report",
+        description=("One-shot static export of model compatibility reports"),
+        formatter_class=(argparse.ArgumentDefaultsHelpFormatter),
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("./litmus-outputs"),
         help="Directory containing reports/",
     )
     parser.add_argument(
@@ -72,33 +139,11 @@ def create_dashboard_parser() -> argparse.ArgumentParser:
         default="verdict",
         help="Sort order for failing models",
     )
-    parser.add_argument(
-        "--serve",
-        action="store_true",
-        default=False,
-        help=(
-            "Start a local HTTP server to view the"
-            " dashboard in a browser; rescans reports"
-            " every --refresh-interval minutes"
-        ),
-    )
-    parser.add_argument(
-        "--port",
-        type=int,
-        default=8150,
-        help="Port for the HTTP server (--serve)",
-    )
-    parser.add_argument(
-        "--refresh-interval",
-        type=int,
-        default=15,
-        help=("Minutes between report rescans when serving (--serve)"),
-    )
     return parser
 
 
-def dashboard_main(argv: list[str]) -> int:
-    parser = create_dashboard_parser()
+def report_main(argv: list[str]) -> int:
+    parser = create_report_parser()
     args = parser.parse_args(argv)
 
     reports_dir = args.output_dir / "reports"
@@ -108,14 +153,6 @@ def dashboard_main(argv: list[str]) -> int:
             file=sys.stderr,
         )
         return 1
-
-    if args.serve:
-        return _serve_dashboard(
-            args.output_dir,
-            args.sort,
-            args.port,
-            args.refresh_interval,
-        )
 
     reports = _load_reports(reports_dir)
     if not reports:
@@ -2018,9 +2055,9 @@ document.getElementById('content').innerHTML =
   DOMPurify.sanitize(marked.parse(md));
 document.querySelectorAll('#content a').forEach(function(a) {{
   var href = a.getAttribute('href');
-  if (href && href.startsWith('litmus-output/analyses/')) {{
+  if (href && href.startsWith('litmus-outputs/analyses/')) {{
     a.setAttribute('href',
-      '/' + href.replace('litmus-output/', ''));
+      '/' + href.replace('litmus-outputs/', ''));
   }}
 }});
 </script>
@@ -2057,8 +2094,10 @@ class _RetryTracker:
     def __init__(
         self,
         output_dir: Path,
+        tron_url: str | None = None,
     ) -> None:
         self.output_dir = output_dir
+        self.tron_url = tron_url
         self._lock = threading.Lock()
         self._jobs: dict[str, str] = {}
         self._pool = ThreadPoolExecutor(
@@ -2097,6 +2136,8 @@ class _RetryTracker:
                 "--output-dir",
                 out_dir,
             ]
+            if self.tron_url:
+                cmd.extend(["--tron-url", self.tron_url])
             logger.info("Retry started: %s", model_id)
             result = subprocess.run(
                 cmd,
@@ -2136,8 +2177,10 @@ class _AnalysisTracker:
     def __init__(
         self,
         output_dir: Path,
+        tron_url: str | None = None,
     ) -> None:
         self.output_dir = output_dir
+        self.tron_url = tron_url
         self._lock = threading.Lock()
         self._model: str = ""
         self._status: str = "idle"  # idle/running/done/error
@@ -2191,6 +2234,8 @@ class _AnalysisTracker:
                 "--output-dir",
                 out_dir,
             ]
+            if self.tron_url:
+                cmd.extend(["--tron-url", self.tron_url])
             logger.info("Analysis started: %s", model_id)
             with self._lock:
                 self._lines.append(f"Starting analysis for {model_id}...")
@@ -2247,7 +2292,7 @@ class _AnalysisTracker:
         self,
         model_id: str,
     ) -> None:
-        """Commit and push results in litmus-output."""
+        """Commit and push results in litmus-outputs."""
         out = self.output_dir.resolve()
         try:
             # Stage only report/analysis artifacts, not logs or state
@@ -2598,13 +2643,18 @@ def _serve_dashboard(
     sort: str,
     port: int,
     refresh_minutes: int,
+    tron_url: str | None = None,
 ) -> int:
     """Run a local HTTP server with auto-refresh."""
     reports_dir = output_dir / "reports"
     _DashboardHandler.reports_dir = reports_dir
     _DashboardHandler.analyses_dir = output_dir / "analyses"
-    _DashboardHandler.retry_tracker = _RetryTracker(output_dir)
-    _DashboardHandler.analysis_tracker = _AnalysisTracker(output_dir)
+    _DashboardHandler.retry_tracker = _RetryTracker(
+        output_dir, tron_url=tron_url
+    )
+    _DashboardHandler.analysis_tracker = _AnalysisTracker(
+        output_dir, tron_url=tron_url
+    )
     auth_token = secrets.token_urlsafe(32)
     _DashboardHandler.auth_token = auth_token
     refresh_secs = refresh_minutes * 60
