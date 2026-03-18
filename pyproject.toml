@@ -11,6 +11,13 @@ dependencies = [
 
 [project.optional-dependencies]
 notion = ["mcp>=1.0"]
+dev = [
+  "pytest>=7.0",
+  "pytest-cov>=4.0",
+  "pytest-timeout>=2.0",
+  "hypothesis>=6.0",
+  "ruff>=0.11",
+]
 
 [build-system]
 requires = ["setuptools>=61.0"]
@@ -21,3 +28,54 @@ build-backend = "setuptools.build_meta"
 
 [project.scripts]
 hf-litmus = "hf_litmus.cli:main"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 79
+
+[tool.ruff.lint]
+select = [
+  "E",    # pycodestyle errors
+  "F",    # pyflakes
+  "W",    # pycodestyle warnings
+  "I",    # isort
+  "UP",   # pyupgrade
+  "B",    # flake8-bugbear
+  "C4",   # flake8-comprehensions
+  "SIM",  # flake8-simplify
+  "RUF",  # ruff-specific
+  "N",    # pep8-naming
+  "S",    # flake8-bandit (security)
+  "PTH",  # flake8-use-pathlib
+]
+ignore = [
+  "E402",   # module-import-not-at-top (conditional imports)
+  "E501",   # line-too-long (handled by ruff format)
+  "N806",   # non-lowercase-variable-in-function (intentional names)
+  "RUF012", # mutable-class-default (too noisy for dataclass-heavy code)
+  "S110",   # try-except-pass (intentional silent catches)
+  "S310",   # suspicious-url-open (HF API URLs are trusted)
+  "S603",   # subprocess-without-shell-equals-true (intentional)
+  "S607",   # start-process-with-partial-path (intentional)
+  "UP045",  # non-pep604-annotation-optional (compat with 3.10 runtime)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S108"]  # allow assert and /tmp paths in tests
+"hf_litmus/ingest/*" = ["S", "B", "SIM", "PTH", "RUF"]  # bundled export scripts
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-x -q --timeout=30"
+
+[tool.coverage.run]
+source = ["hf_litmus"]
+
+[tool.coverage.report]
+fail_under = 10
+show_missing = true
+exclude_lines = [
+  "pragma: no cover",
+  "if __name__",
+  "if TYPE_CHECKING",
+]

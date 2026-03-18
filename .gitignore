@@ -13,9 +13,18 @@ litmus-output/
 # Note: ingest/export/uv.lock IS version-controlled
 hf_litmus.egg-info/
 
+# Virtual environments
+.venv/
+
 # IDE
 .vscode/
 .idea/
 
 # OS
 .DS_Store
+
+# Testing
+.coverage
+htmlcov/
+.hypothesis/
+.pytest_cache/
