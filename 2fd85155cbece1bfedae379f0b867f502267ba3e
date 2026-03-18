@@ -1,0 +1,25 @@
+.github/workflows/ci.yml
+  d895ae2c271036c2 1-20
+lefthook.yml
+  d895ae2c271036c2 1-12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.11",
+  "base_commit_sha": "2fd85155cbece1bfedae379f0b867f502267ba3e",
+  "prompts": {
+    "d895ae2c271036c2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c716c8b0-83ee-4664-8322-3477e3df2917",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "John Wiegley <johnw@newartisans.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 98,
+      "overriden_lines": 0
+    }
+  }
+}
