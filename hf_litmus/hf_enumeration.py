@@ -25,7 +25,7 @@ class HFModelEnumerator:
     def __init__(
         self,
         token: Optional[str] = None,
-        sort: str = "trending",
+        sort: str = "trending_score",
     ) -> None:
         self.api = HfApi(token=token)
         self.sort = sort
@@ -44,7 +44,6 @@ class HFModelEnumerator:
                 models = self.api.list_models(
                     filter=self.PIPELINE_TAG,
                     sort=self.sort,
-                    direction=-1,
                 )
                 for model in models:
                     if (

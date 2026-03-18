@@ -25,8 +25,8 @@ def create_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--sort",
-        choices=["trending", "lastModified"],
-        default="trending",
+        choices=["trending_score", "downloads", "likes", "lastModified"],
+        default="trending_score",
         help="Model sort order from HF Hub",
     )
     parser.add_argument(

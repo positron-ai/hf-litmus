@@ -9,7 +9,7 @@ DEFAULT_TRON_URL = "https://github.com/positron-ai/tron.git"
 @dataclass
 class LitmusConfig:
     output_dir: Path = Path("./litmus-output")
-    sort_mode: str = "trending"
+    sort_mode: str = "trending_score"
     batch_size: int = 100
     interval_minutes: int = 15
     single_run: bool = True
