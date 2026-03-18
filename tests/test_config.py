@@ -9,7 +9,7 @@ from hf_litmus.config import DEFAULT_TRON_URL, LitmusConfig
 
 def test_default_config():
     cfg = LitmusConfig()
-    assert cfg.output_dir == Path("./litmus-output")
+    assert cfg.output_dir == Path("./litmus-outputs")
     assert cfg.batch_size == 100
     assert cfg.single_run is True
     assert cfg.deep_analysis is True

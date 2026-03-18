@@ -99,7 +99,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("./litmus-output"),
+        default=Path("./litmus-outputs"),
         help="Directory containing reports/",
     )
     parser.add_argument(

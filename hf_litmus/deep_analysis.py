@@ -455,16 +455,16 @@ class DeepAnalyzer:
             analysis_dir / "analysis.md",
             worktree_path
             / "hf-litmus"
-            / "litmus-output"
+            / "litmus-outputs"
             / f"{sanitized}-analysis.md",
             worktree_path
-            / "litmus-output"
+            / "litmus-outputs"
             / "analyses"
             / sanitized
             / "analysis.md",
             worktree_path
             / "hf-litmus"
-            / "litmus-output"
+            / "litmus-outputs"
             / "analyses"
             / sanitized
             / "analysis.md",
@@ -486,15 +486,18 @@ class DeepAnalyzer:
         # Try to read gap-summary.json
         gap_paths = [
             analysis_dir / "gap-summary.json",
-            worktree_path / "hf-litmus" / "litmus-output" / "gap-summary.json",
             worktree_path
-            / "litmus-output"
+            / "hf-litmus"
+            / "litmus-outputs"
+            / "gap-summary.json",
+            worktree_path
+            / "litmus-outputs"
             / "analyses"
             / sanitized
             / "gap-summary.json",
             worktree_path
             / "hf-litmus"
-            / "litmus-output"
+            / "litmus-outputs"
             / "analyses"
             / sanitized
             / "gap-summary.json",

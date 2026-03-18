@@ -20,7 +20,7 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("./litmus-output"),
+        default=Path("./litmus-outputs"),
         help="Directory for output reports and state",
     )
     parser.add_argument(
