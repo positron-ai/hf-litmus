@@ -4,7 +4,6 @@ import argparse
 import csv
 import json
 import logging
-import os
 import re
 import secrets
 import subprocess
@@ -18,16 +17,15 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Callable
 
 logger = logging.getLogger(__name__)
 
 # Model ID must be org/name with no leading/trailing dots
 # and no consecutive dots per segment.
 _MODEL_ID_RE = re.compile(
-  r"[A-Za-z0-9][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]+)*"
-  r"/"
-  r"[A-Za-z0-9][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]+)*"
+    r"[A-Za-z0-9][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]+)*"
+    r"/"
+    r"[A-Za-z0-9][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]+)*"
 )
 
 # Maximum POST body size (64 KB)
@@ -43,693 +41,696 @@ _MAX_ANALYSIS_LINES = 10_000
 _MAX_COMPLETED_JOBS = 200
 
 
-
 def create_dashboard_parser() -> argparse.ArgumentParser:
-  parser = argparse.ArgumentParser(
-    prog="hf-litmus dashboard",
-    description=("Summarize model compatibility from JSON reports"),
-    formatter_class=(argparse.ArgumentDefaultsHelpFormatter),
-  )
-  parser.add_argument(
-    "--output-dir",
-    type=Path,
-    default=Path("./litmus-output"),
-    help="Directory containing reports/",
-  )
-  parser.add_argument(
-    "--format",
-    choices=["terminal", "csv", "json", "html"],
-    default="terminal",
-    help="Output format",
-  )
-  parser.add_argument(
-    "-o",
-    "--output",
-    type=Path,
-    default=None,
-    help="Write output to file (default: stdout)",
-  )
-  parser.add_argument(
-    "--sort",
-    choices=["verdict", "name", "downloads", "ops"],
-    default="verdict",
-    help="Sort order for failing models",
-  )
-  parser.add_argument(
-    "--serve",
-    action="store_true",
-    default=False,
-    help=(
-      "Start a local HTTP server to view the"
-      " dashboard in a browser; rescans reports"
-      " every --refresh-interval minutes"
-    ),
-  )
-  parser.add_argument(
-    "--port",
-    type=int,
-    default=8150,
-    help="Port for the HTTP server (--serve)",
-  )
-  parser.add_argument(
-    "--refresh-interval",
-    type=int,
-    default=15,
-    help=("Minutes between report rescans when serving (--serve)"),
-  )
-  return parser
+    parser = argparse.ArgumentParser(
+        prog="hf-litmus dashboard",
+        description=("Summarize model compatibility from JSON reports"),
+        formatter_class=(argparse.ArgumentDefaultsHelpFormatter),
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("./litmus-output"),
+        help="Directory containing reports/",
+    )
+    parser.add_argument(
+        "--format",
+        choices=["terminal", "csv", "json", "html"],
+        default="terminal",
+        help="Output format",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=None,
+        help="Write output to file (default: stdout)",
+    )
+    parser.add_argument(
+        "--sort",
+        choices=["verdict", "name", "downloads", "ops"],
+        default="verdict",
+        help="Sort order for failing models",
+    )
+    parser.add_argument(
+        "--serve",
+        action="store_true",
+        default=False,
+        help=(
+            "Start a local HTTP server to view the"
+            " dashboard in a browser; rescans reports"
+            " every --refresh-interval minutes"
+        ),
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8150,
+        help="Port for the HTTP server (--serve)",
+    )
+    parser.add_argument(
+        "--refresh-interval",
+        type=int,
+        default=15,
+        help=("Minutes between report rescans when serving (--serve)"),
+    )
+    return parser
 
 
 def dashboard_main(argv: list[str]) -> int:
-  parser = create_dashboard_parser()
-  args = parser.parse_args(argv)
+    parser = create_dashboard_parser()
+    args = parser.parse_args(argv)
 
-  reports_dir = args.output_dir / "reports"
-  if not reports_dir.exists():
-    print(
-      f"No reports directory found at {reports_dir}",
-      file=sys.stderr,
-    )
-    return 1
+    reports_dir = args.output_dir / "reports"
+    if not reports_dir.exists():
+        print(
+            f"No reports directory found at {reports_dir}",
+            file=sys.stderr,
+        )
+        return 1
 
-  if args.serve:
-    return _serve_dashboard(
-      args.output_dir,
-      args.sort,
-      args.port,
-      args.refresh_interval,
-    )
+    if args.serve:
+        return _serve_dashboard(
+            args.output_dir,
+            args.sort,
+            args.port,
+            args.refresh_interval,
+        )
 
-  reports = _load_reports(reports_dir)
-  if not reports:
-    print("No JSON reports found.", file=sys.stderr)
-    return 1
+    reports = _load_reports(reports_dir)
+    if not reports:
+        print("No JSON reports found.", file=sys.stderr)
+        return 1
 
-  data = _compute_dashboard(reports, args.sort, args.output_dir)
+    data = _compute_dashboard(reports, args.sort, args.output_dir)
 
-  if args.format == "csv":
-    text = _render_csv(data)
-  elif args.format == "json":
-    text = _render_json(data)
-  elif args.format == "html":
-    text = _render_html(data)
-  else:
-    text = _render_terminal(data)
+    if args.format == "csv":
+        text = _render_csv(data)
+    elif args.format == "json":
+        text = _render_json(data)
+    elif args.format == "html":
+        text = _render_html(data)
+    else:
+        text = _render_terminal(data)
 
-  if args.output:
-    args.output.write_text(text)
-    print(f"Wrote {args.format} to {args.output}")
-  else:
-    print(text)
+    if args.output:
+        args.output.write_text(text)
+        print(f"Wrote {args.format} to {args.output}")
+    else:
+        print(text)
 
-  return 0
+    return 0
 
 
 def _load_reports(reports_dir: Path) -> list[dict]:
-  """Load all per-model JSON metadata files."""
-  reports: list[dict] = []
-  for json_path in sorted(reports_dir.rglob("*.json")):
-    try:
-      data = json.loads(json_path.read_text())
-      if "model_id" in data and "status" in data:
-        reports.append(data)
-    except (json.JSONDecodeError, KeyError):
-      continue
-  return reports
+    """Load all per-model JSON metadata files."""
+    reports: list[dict] = []
+    for json_path in sorted(reports_dir.rglob("*.json")):
+        try:
+            data = json.loads(json_path.read_text())
+            if "model_id" in data and "status" in data:
+                reports.append(data)
+        except (json.JSONDecodeError, KeyError):
+            continue
+    return reports
 
 
 # Verdict ordering for sorting (lower = closer)
 _VERDICT_ORDER = {
-  "pass": 0,
-  "close": 1,
-  "far": 2,
-  "blocked": 3,
+    "pass": 0,
+    "close": 1,
+    "far": 2,
+    "blocked": 3,
 }
 
 _EFFORT_ORDER = {
-  "none": 0,
-  "small": 1,
-  "medium": 2,
-  "large": 3,
+    "none": 0,
+    "small": 1,
+    "medium": 2,
+    "large": 3,
 }
 
 _KNOWN_VERDICTS = {"pass", "close", "far", "blocked"}
 
 
 def _normalize_verdict(assessment: dict) -> str:
-  """Extract a short verdict label from assessment.
+    """Extract a short verdict label from assessment.
 
-  With v2 schema, verdict is always a keyword. Keeps
-  fallback inference for any straggling v1 reports.
-  """
-  raw = assessment.get("verdict", "unknown")
-  if raw in _KNOWN_VERDICTS:
-    return raw
+    With v2 schema, verdict is always a keyword. Keeps
+    fallback inference for any straggling v1 reports.
+    """
+    raw = assessment.get("verdict", "unknown")
+    if raw in _KNOWN_VERDICTS:
+        return raw
 
-  # v1 fallback: infer from numeric fields
-  blockers = assessment.get("blocker_count", 0)
-  effort = assessment.get("effort_estimate", "medium")
-  if blockers == 0 and effort in ("none", "small"):
-    return "close"
-  elif blockers <= 2 and effort != "large":
-    return "close"
-  elif blockers <= 5:
-    return "far"
-  else:
-    return "blocked"
+    # v1 fallback: infer from numeric fields
+    blockers = assessment.get("blocker_count", 0)
+    effort = assessment.get("effort_estimate", "medium")
+    if (blockers == 0 and effort in ("none", "small")) or (
+        blockers <= 2 and effort != "large"
+    ):
+        return "close"
+    elif blockers <= 5:
+        return "far"
+    else:
+        return "blocked"
 
 
 def _sort_key(report: dict, sort: str):
-  """Return a sort key for a report entry."""
-  assessment = report.get("assessment", {})
-  verdict = _normalize_verdict(assessment)
-  if sort == "name":
-    return report.get("model_id", "")
-  elif sort == "downloads":
-    return -report.get("downloads", 0)
-  elif sort == "ops":
-    compat = report.get("platform_compatibility", {})
-    return len(compat.get("missing_ops", []))
-  else:
-    # verdict: group by verdict, then by effort, then
-    # by missing ops count ascending
-    compat = report.get("platform_compatibility", {})
-    return (
-      _VERDICT_ORDER.get(verdict, 9),
-      _EFFORT_ORDER.get(assessment.get("effort_estimate", "large"), 9),
-      len(compat.get("missing_ops", [])),
-    )
+    """Return a sort key for a report entry."""
+    assessment = report.get("assessment", {})
+    verdict = _normalize_verdict(assessment)
+    if sort == "name":
+        return report.get("model_id", "")
+    elif sort == "downloads":
+        return -report.get("downloads", 0)
+    elif sort == "ops":
+        compat = report.get("platform_compatibility", {})
+        return len(compat.get("missing_ops", []))
+    else:
+        # verdict: group by verdict, then by effort, then
+        # by missing ops count ascending
+        compat = report.get("platform_compatibility", {})
+        return (
+            _VERDICT_ORDER.get(verdict, 9),
+            _EFFORT_ORDER.get(assessment.get("effort_estimate", "large"), 9),
+            len(compat.get("missing_ops", [])),
+        )
 
 
 def _compute_dashboard(
-  reports: list[dict],
-  sort: str,
-  output_dir: Path | None = None,
+    reports: list[dict],
+    sort: str,
+    output_dir: Path | None = None,
 ) -> dict:
-  """Aggregate report data into dashboard."""
-  # Backfill model feature tags from HF configs
-  if output_dir is not None:
-    from .model_tags import ensure_tags
+    """Aggregate report data into dashboard."""
+    # Backfill model feature tags from HF configs
+    if output_dir is not None:
+        from .model_tags import ensure_tags
 
-    ensure_tags(reports, output_dir)
+        ensure_tags(reports, output_dir)
 
-  passing = []
-  failing = []
+    passing = []
+    failing = []
 
-  for r in reports:
-    if r.get("status") == "SUCCESS":
-      passing.append(r)
-    else:
-      failing.append(r)
+    for r in reports:
+        if r.get("status") == "SUCCESS":
+            passing.append(r)
+        else:
+            failing.append(r)
 
-  failing.sort(key=lambda r: _sort_key(r, sort))
+    failing.sort(key=lambda r: _sort_key(r, sort))
 
-  # Count feature areas across all failures
-  area_counts: Counter[str] = Counter()
-  for r in failing:
-    compat = r.get("platform_compatibility", {})
-    for area in compat.get("missing_feature_areas", []):
-      area_counts[area] += 1
+    # Count feature areas across all failures
+    area_counts: Counter[str] = Counter()
+    for r in failing:
+        compat = r.get("platform_compatibility", {})
+        for area in compat.get("missing_feature_areas", []):
+            area_counts[area] += 1
 
-  # Count missing ops across all failures
-  op_counts: Counter[str] = Counter()
-  for r in failing:
-    compat = r.get("platform_compatibility", {})
-    for op in compat.get("missing_ops", []):
-      op_counts[op] += 1
+    # Count missing ops across all failures
+    op_counts: Counter[str] = Counter()
+    for r in failing:
+        compat = r.get("platform_compatibility", {})
+        for op in compat.get("missing_ops", []):
+            op_counts[op] += 1
 
-  # Verdict distribution
-  verdict_counts: Counter[str] = Counter()
-  for r in failing:
-    assessment = r.get("assessment", {})
-    verdict = _normalize_verdict(assessment)
-    verdict_counts[verdict] += 1
+    # Verdict distribution
+    verdict_counts: Counter[str] = Counter()
+    for r in failing:
+        assessment = r.get("assessment", {})
+        verdict = _normalize_verdict(assessment)
+        verdict_counts[verdict] += 1
 
-  retryable_count = 0
-  for r in failing:
-    if r.get("retryable"):
-      retryable_count += 1
+    retryable_count = 0
+    for r in failing:
+        if r.get("retryable"):
+            retryable_count += 1
 
-  # Model tag distribution
-  tag_counts: Counter[str] = Counter()
-  all_tags: set[str] = set()
-  for r in reports:
-    for tag in r.get("model_tags", []):
-      tag_counts[tag] += 1
-      all_tags.add(tag)
+    # Model tag distribution
+    tag_counts: Counter[str] = Counter()
+    all_tags: set[str] = set()
+    for r in reports:
+        for tag in r.get("model_tags", []):
+            tag_counts[tag] += 1
+            all_tags.add(tag)
 
-  return {
-    "total": len(reports),
-    "passing": passing,
-    "failing": failing,
-    "pass_count": len(passing),
-    "fail_count": len(failing),
-    "area_counts": area_counts,
-    "op_counts": op_counts,
-    "verdict_counts": verdict_counts,
-    "retryable_count": retryable_count,
-    "tag_counts": tag_counts,
-    "all_tags": sorted(all_tags),
-  }
+    return {
+        "total": len(reports),
+        "passing": passing,
+        "failing": failing,
+        "pass_count": len(passing),
+        "fail_count": len(failing),
+        "area_counts": area_counts,
+        "op_counts": op_counts,
+        "verdict_counts": verdict_counts,
+        "retryable_count": retryable_count,
+        "tag_counts": tag_counts,
+        "all_tags": sorted(all_tags),
+    }
 
 
 def _bar(count: int, max_count: int, width: int = 30) -> str:
-  """Render an ASCII bar."""
-  if max_count == 0:
-    return ""
-  filled = round(count / max_count * width)
-  return "\u2588" * filled
+    """Render an ASCII bar."""
+    if max_count == 0:
+        return ""
+    filled = round(count / max_count * width)
+    return "\u2588" * filled
 
 
 def _render_terminal(data: dict) -> str:
-  """Render dashboard as a terminal-friendly table."""
-  lines: list[str] = []
-  total = data["total"]
-  pass_count = data["pass_count"]
-  fail_count = data["fail_count"]
+    """Render dashboard as a terminal-friendly table."""
+    lines: list[str] = []
+    total = data["total"]
+    pass_count = data["pass_count"]
+    fail_count = data["fail_count"]
 
-  pct = f"{pass_count / total * 100:.1f}%" if total > 0 else "N/A"
-  lines.append("HF Litmus Dashboard")
-  lines.append("=" * 60)
-  lines.append("")
-  lines.append(f"  Models tested:  {total}")
-  lines.append(f"  Supported:      {pass_count}  ({pct})")
-  lines.append(f"  Unsupported:    {fail_count}")
-  lines.append("")
-
-  # Verdict distribution
-  vd = data["verdict_counts"]
-  if vd:
-    lines.append("  Verdict breakdown:")
-    for v in ["close", "far", "blocked"]:
-      if vd.get(v, 0) > 0:
-        lines.append(f"    {v:10s}  {vd[v]}")
+    pct = f"{pass_count / total * 100:.1f}%" if total > 0 else "N/A"
+    lines.append("HF Litmus Dashboard")
+    lines.append("=" * 60)
+    lines.append("")
+    lines.append(f"  Models tested:  {total}")
+    lines.append(f"  Supported:      {pass_count}  ({pct})")
+    lines.append(f"  Unsupported:    {fail_count}")
     lines.append("")
 
-  # Supported models
-  if data["passing"]:
-    lines.append("SUPPORTED MODELS")
-    lines.append("-" * 60)
+    # Verdict distribution
+    vd = data["verdict_counts"]
+    if vd:
+        lines.append("  Verdict breakdown:")
+        for v in ["close", "far", "blocked"]:
+            if vd.get(v, 0) > 0:
+                lines.append(f"    {v:10s}  {vd[v]}")
+        lines.append("")
 
-    for r in sorted(
-      data["passing"],
-      key=lambda x: -x.get("downloads", 0),
-    ):
-      mid = r.get("model_id", "?")
-      dl = r.get("downloads", 0)
-      tag = r.get("pipeline_tag", "")
-      lines.append(f"  + {mid:42s} {tag:18s} {dl:>10,} dl")
-    lines.append("")
+    # Supported models
+    if data["passing"]:
+        lines.append("SUPPORTED MODELS")
+        lines.append("-" * 60)
 
-  # Failing models table
-  if data["failing"]:
-    lines.append("UNSUPPORTED MODELS")
-    lines.append("-" * 60)
+        for r in sorted(
+            data["passing"],
+            key=lambda x: -x.get("downloads", 0),
+        ):
+            mid = r.get("model_id", "?")
+            dl = r.get("downloads", 0)
+            tag = r.get("pipeline_tag", "")
+            lines.append(f"  + {mid:42s} {tag:18s} {dl:>10,} dl")
+        lines.append("")
 
-    # Header
-    lines.append(
-      f"  {'Model':<40s} {'Verdict':>8s}"
-      f" {'Effort':>7s} {'Ops':>4s}"
-      f" {'Areas':>5s}  Feature Areas"
-    )
-    lines.append("  " + "-" * 105)
+    # Failing models table
+    if data["failing"]:
+        lines.append("UNSUPPORTED MODELS")
+        lines.append("-" * 60)
 
-    for r in data["failing"]:
-      mid = r.get("model_id", "?")
-      assessment = r.get("assessment", {})
-      verdict = _normalize_verdict(assessment)
-      effort = assessment.get("effort_estimate", "?")
-      compat = r.get("platform_compatibility", {})
-      n_ops = len(compat.get("missing_ops", []))
-      feat_areas = compat.get("missing_feature_areas", [])
-      n_areas = len(feat_areas)
+        # Header
+        lines.append(
+            f"  {'Model':<40s} {'Verdict':>8s}"
+            f" {'Effort':>7s} {'Ops':>4s}"
+            f" {'Areas':>5s}  Feature Areas"
+        )
+        lines.append("  " + "-" * 105)
 
-      # Truncate feature areas for display
-      areas_str = ", ".join(a for a in feat_areas[:4] if len(a) < 30)
-      if len(feat_areas) > 4:
-        areas_str += f", +{len(feat_areas) - 4}"
+        for r in data["failing"]:
+            mid = r.get("model_id", "?")
+            assessment = r.get("assessment", {})
+            verdict = _normalize_verdict(assessment)
+            effort = assessment.get("effort_estimate", "?")
+            compat = r.get("platform_compatibility", {})
+            n_ops = len(compat.get("missing_ops", []))
+            feat_areas = compat.get("missing_feature_areas", [])
+            n_areas = len(feat_areas)
 
-      lines.append(
-        f"  {mid:<40s} {verdict:>8s}"
-        f" {effort:>7s} {n_ops:>4d}"
-        f" {n_areas:>5d}  {areas_str}"
-      )
-    lines.append("")
+            # Truncate feature areas for display
+            areas_str = ", ".join(a for a in feat_areas[:4] if len(a) < 30)
+            if len(feat_areas) > 4:
+                areas_str += f", +{len(feat_areas) - 4}"
 
-  # Feature area bar chart
-  area_counts = data["area_counts"]
-  if area_counts:
-    lines.append("MISSING FEATURE AREAS (models affected)")
-    lines.append("-" * 60)
+            lines.append(
+                f"  {mid:<40s} {verdict:>8s}"
+                f" {effort:>7s} {n_ops:>4d}"
+                f" {n_areas:>5d}  {areas_str}"
+            )
+        lines.append("")
 
-    # Filter to short area names for the chart;
-    # long ones (from gap analysis) are too verbose
-    short_areas = {k: v for k, v in area_counts.items() if len(k) < 30}
-    if short_areas:
-      max_count = max(short_areas.values())
-      for area, count in sorted(
-        short_areas.items(),
-        key=lambda x: -x[1],
-      ):
-        bar = _bar(count, max_count)
-        lines.append(f"  {area:<25s} {bar} {count}")
-      lines.append("")
+    # Feature area bar chart
+    area_counts = data["area_counts"]
+    if area_counts:
+        lines.append("MISSING FEATURE AREAS (models affected)")
+        lines.append("-" * 60)
 
-    # Show verbose areas (from deep analysis)
-    verbose_areas = {k: v for k, v in area_counts.items() if len(k) >= 30}
-    if verbose_areas:
-      lines.append("  Additional gaps (from deep analysis):")
-      for area, count in sorted(
-        verbose_areas.items(),
-        key=lambda x: -x[1],
-      ):
-        lines.append(f"    [{count}] {area}")
-      lines.append("")
+        # Filter to short area names for the chart;
+        # long ones (from gap analysis) are too verbose
+        short_areas = {k: v for k, v in area_counts.items() if len(k) < 30}
+        if short_areas:
+            max_count = max(short_areas.values())
+            for area, count in sorted(
+                short_areas.items(),
+                key=lambda x: -x[1],
+            ):
+                bar = _bar(count, max_count)
+                lines.append(f"  {area:<25s} {bar} {count}")
+            lines.append("")
 
-  # Top missing ops
-  op_counts = data["op_counts"]
-  if op_counts:
-    lines.append("TOP MISSING OPS (models affected)")
-    lines.append("-" * 60)
-    max_op = max(op_counts.values())
-    for op, count in op_counts.most_common(15):
-      bar = _bar(count, max_op, width=20)
-      lines.append(f"  {op:<35s} {bar} {count}")
-    lines.append("")
+        # Show verbose areas (from deep analysis)
+        verbose_areas = {k: v for k, v in area_counts.items() if len(k) >= 30}
+        if verbose_areas:
+            lines.append("  Additional gaps (from deep analysis):")
+            for area, count in sorted(
+                verbose_areas.items(),
+                key=lambda x: -x[1],
+            ):
+                lines.append(f"    [{count}] {area}")
+            lines.append("")
 
-  return "\n".join(lines)
+    # Top missing ops
+    op_counts = data["op_counts"]
+    if op_counts:
+        lines.append("TOP MISSING OPS (models affected)")
+        lines.append("-" * 60)
+        max_op = max(op_counts.values())
+        for op, count in op_counts.most_common(15):
+            bar = _bar(count, max_op, width=20)
+            lines.append(f"  {op:<35s} {bar} {count}")
+        lines.append("")
+
+    return "\n".join(lines)
 
 
 def _render_csv(data: dict) -> str:
-  """Render dashboard data as CSV."""
-  import io
+    """Render dashboard data as CSV."""
+    import io
 
-  buf = io.StringIO()
-  writer = csv.writer(buf)
-  writer.writerow(
-    [
-      "model_id",
-      "pipeline_tag",
-      "downloads",
-      "status",
-      "verdict",
-      "effort_estimate",
-      "failure_origin",
-      "retryable",
-      "model_tags",
-      "missing_ops_count",
-      "missing_feature_areas_count",
-      "blocker_count",
-      "confidence",
-      "feature_areas",
-    ]
-  )
-
-  all_models = data["passing"] + data["failing"]
-  all_models.sort(key=lambda r: r.get("model_id", ""))
-
-  for r in all_models:
-    assessment = r.get("assessment", {})
-    compat = r.get("platform_compatibility", {})
-    ops = compat.get("missing_ops", [])
-    areas = compat.get("missing_feature_areas", [])
+    buf = io.StringIO()
+    writer = csv.writer(buf)
     writer.writerow(
-      [
-        r.get("model_id", ""),
-        r.get("pipeline_tag", ""),
-        r.get("downloads", 0),
-        r.get("status", ""),
-        _normalize_verdict(assessment),
-        assessment.get("effort_estimate", ""),
-        r.get("failure_origin", ""),
-        r.get("retryable", False),
-        "; ".join(r.get("model_tags", [])),
-        len(ops),
-        len(areas),
-        assessment.get("blocker_count", 0),
-        assessment.get("confidence", ""),
-        "; ".join(areas),
-      ]
+        [
+            "model_id",
+            "pipeline_tag",
+            "downloads",
+            "status",
+            "verdict",
+            "effort_estimate",
+            "failure_origin",
+            "retryable",
+            "model_tags",
+            "missing_ops_count",
+            "missing_feature_areas_count",
+            "blocker_count",
+            "confidence",
+            "feature_areas",
+        ]
     )
 
-  return buf.getvalue()
+    all_models = data["passing"] + data["failing"]
+    all_models.sort(key=lambda r: r.get("model_id", ""))
+
+    for r in all_models:
+        assessment = r.get("assessment", {})
+        compat = r.get("platform_compatibility", {})
+        ops = compat.get("missing_ops", [])
+        areas = compat.get("missing_feature_areas", [])
+        writer.writerow(
+            [
+                r.get("model_id", ""),
+                r.get("pipeline_tag", ""),
+                r.get("downloads", 0),
+                r.get("status", ""),
+                _normalize_verdict(assessment),
+                assessment.get("effort_estimate", ""),
+                r.get("failure_origin", ""),
+                r.get("retryable", False),
+                "; ".join(r.get("model_tags", [])),
+                len(ops),
+                len(areas),
+                assessment.get("blocker_count", 0),
+                assessment.get("confidence", ""),
+                "; ".join(areas),
+            ]
+        )
+
+    return buf.getvalue()
 
 
 def _render_json(data: dict) -> str:
-  """Render dashboard data as JSON."""
-  models = []
-  all_models = data["passing"] + data["failing"]
-  all_models.sort(key=lambda r: r.get("model_id", ""))
+    """Render dashboard data as JSON."""
+    models = []
+    all_models = data["passing"] + data["failing"]
+    all_models.sort(key=lambda r: r.get("model_id", ""))
 
-  for r in all_models:
-    assessment = r.get("assessment", {})
-    compat = r.get("platform_compatibility", {})
-    models.append(
-      {
-        "model_id": r.get("model_id", ""),
-        "pipeline_tag": r.get("pipeline_tag", ""),
-        "downloads": r.get("downloads", 0),
-        "status": r.get("status", ""),
-        "verdict": _normalize_verdict(assessment),
-        "effort_estimate": assessment.get("effort_estimate", ""),
-        "failure_origin": r.get("failure_origin", None),
-        "retryable": r.get("retryable", False),
-        "model_tags": r.get("model_tags", []),
-        "missing_ops_count": len(compat.get("missing_ops", [])),
-        "missing_feature_areas_count": len(compat.get("missing_feature_areas", [])),
-        "blocker_count": assessment.get("blocker_count", 0),
-        "confidence": assessment.get("confidence", ""),
-        "feature_areas": compat.get("missing_feature_areas", []),
-      }
-    )
+    for r in all_models:
+        assessment = r.get("assessment", {})
+        compat = r.get("platform_compatibility", {})
+        models.append(
+            {
+                "model_id": r.get("model_id", ""),
+                "pipeline_tag": r.get("pipeline_tag", ""),
+                "downloads": r.get("downloads", 0),
+                "status": r.get("status", ""),
+                "verdict": _normalize_verdict(assessment),
+                "effort_estimate": assessment.get("effort_estimate", ""),
+                "failure_origin": r.get("failure_origin", None),
+                "retryable": r.get("retryable", False),
+                "model_tags": r.get("model_tags", []),
+                "missing_ops_count": len(compat.get("missing_ops", [])),
+                "missing_feature_areas_count": len(
+                    compat.get("missing_feature_areas", [])
+                ),
+                "blocker_count": assessment.get("blocker_count", 0),
+                "confidence": assessment.get("confidence", ""),
+                "feature_areas": compat.get("missing_feature_areas", []),
+            }
+        )
 
-  output = {
-    "total_models": data["total"],
-    "supported": data["pass_count"],
-    "unsupported": data["fail_count"],
-    "pass_rate_pct": round(data["pass_count"] / data["total"] * 100, 1)
-    if data["total"] > 0
-    else 0,
-    "verdict_breakdown": dict(data["verdict_counts"]),
-    "feature_area_frequency": dict(data["area_counts"].most_common()),
-    "missing_op_frequency": dict(data["op_counts"].most_common()),
-    "models": models,
-  }
+    output = {
+        "total_models": data["total"],
+        "supported": data["pass_count"],
+        "unsupported": data["fail_count"],
+        "pass_rate_pct": round(data["pass_count"] / data["total"] * 100, 1)
+        if data["total"] > 0
+        else 0,
+        "verdict_breakdown": dict(data["verdict_counts"]),
+        "feature_area_frequency": dict(data["area_counts"].most_common()),
+        "missing_op_frequency": dict(data["op_counts"].most_common()),
+        "models": models,
+    }
 
-  return json.dumps(output, indent=2) + "\n"
+    return json.dumps(output, indent=2) + "\n"
 
 
 def _esc(text: str) -> str:
-  """Escape HTML special characters."""
-  return (
-    text.replace("&", "&amp;")
-    .replace("<", "&lt;")
-    .replace(">", "&gt;")
-    .replace('"', "&quot;")
-    .replace("'", "&#39;")
-  )
+    """Escape HTML special characters."""
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
 
 
 def _report_href(model_id: str) -> str:
-  """Build URL path to a model's markdown report."""
-  if "/" in model_id:
-    org, name = model_id.split("/", 1)
-  else:
-    org, name = "_local", model_id
-  return (
-    f"/reports/"
-    f"{urllib.parse.quote(org, safe='')}"
-    f"/{urllib.parse.quote(name, safe='')}.md"
-  )
+    """Build URL path to a model's markdown report."""
+    if "/" in model_id:
+        org, name = model_id.split("/", 1)
+    else:
+        org, name = "_local", model_id
+    return (
+        f"/reports/"
+        f"{urllib.parse.quote(org, safe='')}"
+        f"/{urllib.parse.quote(name, safe='')}.md"
+    )
 
 
 def _model_link(model_id: str) -> str:
-  """Render a model_id as an <a> link to its report."""
-  href = _report_href(model_id)
-  return f"<a href='{href}' class='model-link'>{_esc(model_id)}</a>"
+    """Render a model_id as an <a> link to its report."""
+    href = _report_href(model_id)
+    return f"<a href='{href}' class='model-link'>{_esc(model_id)}</a>"
 
 
 _VERDICT_COLORS = {
-  "pass": "#22c55e",
-  "close": "#eab308",
-  "far": "#f97316",
-  "blocked": "#ef4444",
+    "pass": "#22c55e",
+    "close": "#eab308",
+    "far": "#f97316",
+    "blocked": "#ef4444",
 }
 
 _EFFORT_COLORS = {
-  "none": "#22c55e",
-  "small": "#84cc16",
-  "medium": "#eab308",
-  "large": "#ef4444",
+    "none": "#22c55e",
+    "small": "#84cc16",
+    "medium": "#eab308",
+    "large": "#ef4444",
 }
 
 
 def _render_html(
-  data: dict,
-  refresh_seconds: int = 0,
-  auth_token: str = "",
+    data: dict,
+    refresh_seconds: int = 0,
+    auth_token: str = "",
 ) -> str:
-  """Render dashboard as self-contained HTML."""
-  total = data["total"]
-  pass_count = data["pass_count"]
-  fail_count = data["fail_count"]
-  pct = round(pass_count / total * 100, 1) if total > 0 else 0
-  now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    """Render dashboard as self-contained HTML."""
+    total = data["total"]
+    pass_count = data["pass_count"]
+    fail_count = data["fail_count"]
+    pct = round(pass_count / total * 100, 1) if total > 0 else 0
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
-  meta_refresh = ""
-  if refresh_seconds > 0:
-    meta_refresh = f'<meta http-equiv="refresh" content="{refresh_seconds}">'
+    meta_refresh = ""
+    if refresh_seconds > 0:
+        meta_refresh = (
+            f'<meta http-equiv="refresh" content="{refresh_seconds}">'
+        )
 
-  # Build verdict pie data
-  vd = data["verdict_counts"]
-  pie_parts = []
-  offset = 0
-  for v in ["close", "far", "blocked"]:
-    c = vd.get(v, 0)
-    if c == 0:
-      continue
-    pct_v = c / fail_count * 100 if fail_count else 0
-    color = _VERDICT_COLORS.get(v, "#999")
-    pie_parts.append(f"{color} {offset}% {offset + pct_v}%")
-    offset += pct_v
+    # Build verdict pie data
+    vd = data["verdict_counts"]
+    pie_parts = []
+    offset = 0
+    for v in ["close", "far", "blocked"]:
+        c = vd.get(v, 0)
+        if c == 0:
+            continue
+        pct_v = c / fail_count * 100 if fail_count else 0
+        color = _VERDICT_COLORS.get(v, "#999")
+        pie_parts.append(f"{color} {offset}% {offset + pct_v}%")
+        offset += pct_v
 
-  # Supported models rows
-  supported_parts: list[str] = []
-  for r in sorted(
-    data["passing"],
-    key=lambda x: -x.get("downloads", 0),
-  ):
-    mid = r.get("model_id", "?")
-    link = _model_link(mid)
-    tag = _esc(r.get("pipeline_tag", ""))
-    dl = r.get("downloads", 0)
-    mtags = r.get("model_tags", [])
-    tags_str = ", ".join(_esc(t) for t in mtags)
-    data_tags = _esc(",".join(mtags))
-    mid_esc = _esc(mid)
-    supported_parts.append(
-      f"<tr data-tags='{data_tags}'"
-      f" data-model='{mid_esc}'>"
-      f"<td>{link}</td>"
-      f"<td>{tag}</td>"
-      f"<td class='num'>{dl:,}</td>"
-      f"<td class='tags'>{tags_str}</td></tr>\n"
-    )
-  supported_rows = "".join(supported_parts)
-
-  # Collect all observed tags for filter panel
-  all_tags = data.get("all_tags", [])
-
-  # Unsupported models rows
-  unsupported_parts: list[str] = []
-  for r in data["failing"]:
-    mid = r.get("model_id", "?")
-    mid_esc = _esc(mid)
-    link = _model_link(mid)
-    assessment = r.get("assessment", {})
-    verdict = _normalize_verdict(assessment)
-    effort = assessment.get("effort_estimate", "?")
-    retryable = r.get("retryable", False)
-    mtags = r.get("model_tags", [])
-    compat = r.get("platform_compatibility", {})
-    n_ops = len(compat.get("missing_ops", []))
-    feat_areas = compat.get("missing_feature_areas", [])
-    n_areas = len(feat_areas)
-    short = [_esc(a) for a in feat_areas[:3] if len(a) < 40]
-    areas_str = ", ".join(short)
-    if len(feat_areas) > 3:
-      areas_str += f", +{len(feat_areas) - 3}"
-    vc = _VERDICT_COLORS.get(verdict, "#999")
-    ec = _EFFORT_COLORS.get(effort, "#999")
-    tags_str = ", ".join(_esc(t) for t in mtags)
-    data_tags = _esc(",".join(mtags))
-    status = _esc(r.get("status", ""))
-    unsupported_parts.append(
-      f"<tr data-verdict='{_esc(verdict)}'"
-      f" data-effort='{_esc(effort)}'"
-      f" data-retryable='{'true' if retryable else 'false'}'"
-      f" data-tags='{data_tags}'"
-      f" data-status='{status}'"
-      f" data-model='{mid_esc}'>"
-      f"<td>{link}</td>"
-      f"<td><span class='badge'"
-      f" style='background:{vc}'>"
-      f"{_esc(verdict)}</span></td>"
-      f"<td><span class='badge'"
-      f" style='background:{ec}'>"
-      f"{_esc(effort)}</span></td>"
-      f"<td class='num'>{n_ops}</td>"
-      f"<td class='num'>{n_areas}</td>"
-      f"<td class='tags'>{tags_str}</td>"
-      f"<td class='areas'>{areas_str}</td>"
-      f"<td><button class='retry-btn'"
-      f" data-model='{mid_esc}'"
-      f" title='Re-run analysis'>"
-      f"&#x21bb;</button></td>"
-      f"</tr>\n"
-    )
-  unsupported_rows = "".join(unsupported_parts)
-
-  # Feature area bars
-  area_counts = data["area_counts"]
-  short_areas = {k: v for k, v in area_counts.items() if len(k) < 30}
-  area_bars = ""
-  if short_areas:
-    max_a = max(short_areas.values())
-    for area, count in sorted(
-      short_areas.items(),
-      key=lambda x: -x[1],
+    # Supported models rows
+    supported_parts: list[str] = []
+    for r in sorted(
+        data["passing"],
+        key=lambda x: -x.get("downloads", 0),
     ):
-      w = round(count / max_a * 100)
-      area_bars += (
-        f"<div class='bar-row'>"
-        f"<span class='bar-label'>"
-        f"{_esc(area)}</span>"
-        f"<div class='bar-track'>"
-        f"<div class='bar-fill'"
-        f" style='width:{w}%'></div></div>"
-        f"<span class='bar-val'>{count}</span>"
-        f"</div>\n"
-      )
+        mid = r.get("model_id", "?")
+        link = _model_link(mid)
+        tag = _esc(r.get("pipeline_tag", ""))
+        dl = r.get("downloads", 0)
+        mtags = r.get("model_tags", [])
+        tags_str = ", ".join(_esc(t) for t in mtags)
+        data_tags = _esc(",".join(mtags))
+        mid_esc = _esc(mid)
+        supported_parts.append(
+            f"<tr data-tags='{data_tags}'"
+            f" data-model='{mid_esc}'>"
+            f"<td>{link}</td>"
+            f"<td>{tag}</td>"
+            f"<td class='num'>{dl:,}</td>"
+            f"<td class='tags'>{tags_str}</td></tr>\n"
+        )
+    supported_rows = "".join(supported_parts)
 
-  # Deep analysis gaps
-  verbose_areas = {k: v for k, v in area_counts.items() if len(k) >= 30}
-  deep_gaps = ""
-  if verbose_areas:
-    deep_gaps = "<h3>Additional Gaps (from deep analysis)</h3><ul class='gap-list'>"
-    for area, count in sorted(
-      verbose_areas.items(),
-      key=lambda x: -x[1],
-    ):
-      deep_gaps += f"<li><span class='gap-count'>{count}</span> {_esc(area)}</li>"
-    deep_gaps += "</ul>"
+    # Collect all observed tags for filter panel
+    all_tags = data.get("all_tags", [])
 
-  # Filter panel tag buttons
-  tag_buttons = ""
-  for tag in all_tags:
-    tag_buttons += (
-      f"<button class='tag-btn' data-tag='{_esc(tag)}'>{_esc(tag)}</button> "
-    )
+    # Unsupported models rows
+    unsupported_parts: list[str] = []
+    for r in data["failing"]:
+        mid = r.get("model_id", "?")
+        mid_esc = _esc(mid)
+        link = _model_link(mid)
+        assessment = r.get("assessment", {})
+        verdict = _normalize_verdict(assessment)
+        effort = assessment.get("effort_estimate", "?")
+        retryable = r.get("retryable", False)
+        mtags = r.get("model_tags", [])
+        compat = r.get("platform_compatibility", {})
+        n_ops = len(compat.get("missing_ops", []))
+        feat_areas = compat.get("missing_feature_areas", [])
+        n_areas = len(feat_areas)
+        short = [_esc(a) for a in feat_areas[:3] if len(a) < 40]
+        areas_str = ", ".join(short)
+        if len(feat_areas) > 3:
+            areas_str += f", +{len(feat_areas) - 3}"
+        vc = _VERDICT_COLORS.get(verdict, "#999")
+        ec = _EFFORT_COLORS.get(effort, "#999")
+        tags_str = ", ".join(_esc(t) for t in mtags)
+        data_tags = _esc(",".join(mtags))
+        status = _esc(r.get("status", ""))
+        unsupported_parts.append(
+            f"<tr data-verdict='{_esc(verdict)}'"
+            f" data-effort='{_esc(effort)}'"
+            f" data-retryable='{'true' if retryable else 'false'}'"
+            f" data-tags='{data_tags}'"
+            f" data-status='{status}'"
+            f" data-model='{mid_esc}'>"
+            f"<td>{link}</td>"
+            f"<td><span class='badge'"
+            f" style='background:{vc}'>"
+            f"{_esc(verdict)}</span></td>"
+            f"<td><span class='badge'"
+            f" style='background:{ec}'>"
+            f"{_esc(effort)}</span></td>"
+            f"<td class='num'>{n_ops}</td>"
+            f"<td class='num'>{n_areas}</td>"
+            f"<td class='tags'>{tags_str}</td>"
+            f"<td class='areas'>{areas_str}</td>"
+            f"<td><button class='retry-btn'"
+            f" data-model='{mid_esc}'"
+            f" title='Re-run analysis'>"
+            f"&#x21bb;</button></td>"
+            f"</tr>\n"
+        )
+    unsupported_rows = "".join(unsupported_parts)
 
-  # Top missing ops bars
-  op_counts = data["op_counts"]
-  op_bars = ""
-  if op_counts:
-    max_o = max(op_counts.values())
-    for op, count in op_counts.most_common(15):
-      w = round(count / max_o * 100)
-      op_bars += (
-        f"<div class='bar-row'>"
-        f"<span class='bar-label mono'>"
-        f"{_esc(op)}</span>"
-        f"<div class='bar-track'>"
-        f"<div class='bar-fill op-fill'"
-        f" style='width:{w}%'></div></div>"
-        f"<span class='bar-val'>{count}</span>"
-        f"</div>\n"
-      )
+    # Feature area bars
+    area_counts = data["area_counts"]
+    short_areas = {k: v for k, v in area_counts.items() if len(k) < 30}
+    area_bars = ""
+    if short_areas:
+        max_a = max(short_areas.values())
+        for area, count in sorted(
+            short_areas.items(),
+            key=lambda x: -x[1],
+        ):
+            w = round(count / max_a * 100)
+            area_bars += (
+                f"<div class='bar-row'>"
+                f"<span class='bar-label'>"
+                f"{_esc(area)}</span>"
+                f"<div class='bar-track'>"
+                f"<div class='bar-fill'"
+                f" style='width:{w}%'></div></div>"
+                f"<span class='bar-val'>{count}</span>"
+                f"</div>\n"
+            )
 
-  return f"""\
+    # Deep analysis gaps
+    verbose_areas = {k: v for k, v in area_counts.items() if len(k) >= 30}
+    deep_gaps = ""
+    if verbose_areas:
+        deep_gaps = "<h3>Additional Gaps (from deep analysis)</h3><ul class='gap-list'>"
+        for area, count in sorted(
+            verbose_areas.items(),
+            key=lambda x: -x[1],
+        ):
+            deep_gaps += (
+                f"<li><span class='gap-count'>{count}</span> {_esc(area)}</li>"
+            )
+        deep_gaps += "</ul>"
+
+    # Filter panel tag buttons
+    tag_buttons = ""
+    for tag in all_tags:
+        tag_buttons += f"<button class='tag-btn' data-tag='{_esc(tag)}'>{_esc(tag)}</button> "
+
+    # Top missing ops bars
+    op_counts = data["op_counts"]
+    op_bars = ""
+    if op_counts:
+        max_o = max(op_counts.values())
+        for op, count in op_counts.most_common(15):
+            w = round(count / max_o * 100)
+            op_bars += (
+                f"<div class='bar-row'>"
+                f"<span class='bar-label mono'>"
+                f"{_esc(op)}</span>"
+                f"<div class='bar-track'>"
+                f"<div class='bar-fill op-fill'"
+                f" style='width:{w}%'></div></div>"
+                f"<span class='bar-val'>{count}</span>"
+                f"</div>\n"
+            )
+
+    return f"""\
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1076,10 +1077,12 @@ th.sort-desc::after {{ content: ' \u2193'; }}
 <h1>HF Litmus Dashboard</h1>
 <p class="subtitle">Generated {now}
 {
-    " &middot; auto-refreshing every " + str(refresh_seconds // 60) + " min"
-    if refresh_seconds > 0
-    else ""
-  }</p>
+        " &middot; auto-refreshing every "
+        + str(refresh_seconds // 60)
+        + " min"
+        if refresh_seconds > 0
+        else ""
+    }</p>
 
 <div class="analyze-section">
   <div class="analyze-form">
@@ -1206,7 +1209,9 @@ th.sort-desc::after {{ content: ' \u2193'; }}
   </div>
 </div>
 <div class="filter-counter" id="filter-counter">
-  <span id="filter-counter-text">Showing {fail_count} of {fail_count} models</span>
+  <span id="filter-counter-text">Showing {fail_count} of {
+        fail_count
+    } models</span>
   <button class="retry-visible-btn"
     id="retry-visible" title="Re-run analysis for all
     visible models">&#x21bb; Retry Visible</button>
@@ -2025,617 +2030,630 @@ document.querySelectorAll('#content a').forEach(function(a) {{
 
 
 def _render_markdown_page(
-  title: str,
-  markdown_content: str,
+    title: str,
+    markdown_content: str,
 ) -> str:
-  """Wrap raw markdown in a styled HTML viewer."""
-  # Use HTML-safe JSON: escape </script> and other HTML
-  # special sequences to prevent script block breakout.
-  safe_json = (
-    json.dumps(markdown_content)
-    .replace("<", "\\u003c")
-    .replace(">", "\\u003e")
-  )
-  safe_title = _esc(title).replace("{", "{{").replace(
-    "}", "}}"
-  )
-  return _MD_VIEWER_HTML.format(
-    title=safe_title,
-    markdown_json=safe_json,
-  )
+    """Wrap raw markdown in a styled HTML viewer."""
+    # Use HTML-safe JSON: escape </script> and other HTML
+    # special sequences to prevent script block breakout.
+    safe_json = (
+        json.dumps(markdown_content)
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+    )
+    safe_title = _esc(title).replace("{", "{{").replace("}", "}}")
+    return _MD_VIEWER_HTML.format(
+        title=safe_title,
+        markdown_json=safe_json,
+    )
 
 
 # -- HTTP server ---------------------------------------------------
 
 
 class _RetryTracker:
-  """Track background retry jobs."""
+    """Track background retry jobs."""
 
-  def __init__(
-    self,
-    output_dir: Path,
-  ) -> None:
-    self.output_dir = output_dir
-    self._lock = threading.Lock()
-    self._jobs: dict[str, str] = {}
-    self._pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="retry")
-
-  def submit(self, model_id: str) -> None:
-    with self._lock:
-      if self._jobs.get(model_id) == "running":
-        return
-      self._prune_completed()
-      self._jobs[model_id] = "running"
-    self._pool.submit(self._run, model_id)
-
-  def status(self) -> dict[str, str]:
-    with self._lock:
-      return dict(self._jobs)
-
-  def _prune_completed(self) -> None:
-    """Remove oldest completed/errored jobs when limit exceeded."""
-    terminal = [
-      k for k, v in self._jobs.items()
-      if v in ("done", "error")
-    ]
-    excess = len(terminal) - _MAX_COMPLETED_JOBS
-    if excess > 0:
-      for k in terminal[:excess]:
-        del self._jobs[k]
-
-  def _run(self, model_id: str) -> None:
-    try:
-      out_dir = str(self.output_dir.resolve())
-      cmd = [
-        sys.executable,
-        "-m",
-        "hf_litmus.cli",
-        "--model",
-        model_id,
-        "--output-dir",
-        out_dir,
-      ]
-      logger.info("Retry started: %s", model_id)
-      result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=7200,
-      )
-      if result.returncode == 0:
-        with self._lock:
-          self._jobs[model_id] = "done"
-        logger.info("Retry succeeded: %s", model_id)
-      else:
-        with self._lock:
-          self._jobs[model_id] = "error"
-        logger.warning(
-          "Retry failed: %s (rc=%d)\n%s",
-          model_id,
-          result.returncode,
-          result.stderr[-500:] if result.stderr else "",
+    def __init__(
+        self,
+        output_dir: Path,
+    ) -> None:
+        self.output_dir = output_dir
+        self._lock = threading.Lock()
+        self._jobs: dict[str, str] = {}
+        self._pool = ThreadPoolExecutor(
+            max_workers=2, thread_name_prefix="retry"
         )
-    except subprocess.TimeoutExpired:
-      with self._lock:
-        self._jobs[model_id] = "error"
-      logger.warning("Retry timed out: %s", model_id)
-    except Exception as e:
-      with self._lock:
-        self._jobs[model_id] = "error"
-      logger.warning("Retry error: %s: %s", model_id, e)
+
+    def submit(self, model_id: str) -> None:
+        with self._lock:
+            if self._jobs.get(model_id) == "running":
+                return
+            self._prune_completed()
+            self._jobs[model_id] = "running"
+        self._pool.submit(self._run, model_id)
+
+    def status(self) -> dict[str, str]:
+        with self._lock:
+            return dict(self._jobs)
+
+    def _prune_completed(self) -> None:
+        """Remove oldest completed/errored jobs when limit exceeded."""
+        terminal = [k for k, v in self._jobs.items() if v in ("done", "error")]
+        excess = len(terminal) - _MAX_COMPLETED_JOBS
+        if excess > 0:
+            for k in terminal[:excess]:
+                del self._jobs[k]
+
+    def _run(self, model_id: str) -> None:
+        try:
+            out_dir = str(self.output_dir.resolve())
+            cmd = [
+                sys.executable,
+                "-m",
+                "hf_litmus.cli",
+                "--model",
+                model_id,
+                "--output-dir",
+                out_dir,
+            ]
+            logger.info("Retry started: %s", model_id)
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=7200,
+            )
+            if result.returncode == 0:
+                with self._lock:
+                    self._jobs[model_id] = "done"
+                logger.info("Retry succeeded: %s", model_id)
+            else:
+                with self._lock:
+                    self._jobs[model_id] = "error"
+                logger.warning(
+                    "Retry failed: %s (rc=%d)\n%s",
+                    model_id,
+                    result.returncode,
+                    result.stderr[-500:] if result.stderr else "",
+                )
+        except subprocess.TimeoutExpired:
+            with self._lock:
+                self._jobs[model_id] = "error"
+            logger.warning("Retry timed out: %s", model_id)
+        except Exception as e:
+            with self._lock:
+                self._jobs[model_id] = "error"
+            logger.warning("Retry error: %s: %s", model_id, e)
 
 
 class _AnalysisTracker:
-  """Track a single background analysis job with
-  live output streaming."""
+    """Track a single background analysis job with
+    live output streaming."""
 
-  _TIMEOUT = 7200  # 2 hours
+    _TIMEOUT = 7200  # 2 hours
 
-  def __init__(
-    self,
-    output_dir: Path,
-  ) -> None:
-    self.output_dir = output_dir
-    self._lock = threading.Lock()
-    self._model: str = ""
-    self._status: str = "idle"  # idle/running/done/error
-    self._lines: list[str] = []
-    self._proc: subprocess.Popen | None = None
+    def __init__(
+        self,
+        output_dir: Path,
+    ) -> None:
+        self.output_dir = output_dir
+        self._lock = threading.Lock()
+        self._model: str = ""
+        self._status: str = "idle"  # idle/running/done/error
+        self._lines: list[str] = []
+        self._proc: subprocess.Popen | None = None
 
-  def submit(self, model_id: str) -> bool:
-    """Start analysis for a model. Returns False if
-    already running."""
-    with self._lock:
-      if self._status == "running":
-        return False
-      self._model = model_id
-      self._status = "running"
-      self._lines = []  # reset on new submission
-    t = threading.Thread(
-      target=self._run,
-      args=(model_id,),
-      daemon=True,
-    )
-    t.start()
-    return True
-
-  def status(
-    self,
-    offset: int = 0,
-  ) -> dict:
-    with self._lock:
-      return {
-        "model": self._model,
-        "status": self._status,
-        "lines": self._lines[offset:],
-        "total_lines": len(self._lines),
-      }
-
-  def _run(self, model_id: str) -> None:
-    try:
-      def log_line(msg: str) -> None:
+    def submit(self, model_id: str) -> bool:
+        """Start analysis for a model. Returns False if
+        already running."""
         with self._lock:
-          if len(self._lines) < _MAX_ANALYSIS_LINES:
-            self._lines.append(msg)
-
-      out_dir = str(self.output_dir.resolve())
-      cmd = [
-        sys.executable,
-        "-m",
-        "hf_litmus.cli",
-        "--model",
-        model_id,
-        "--output-dir",
-        out_dir,
-      ]
-      logger.info("Analysis started: %s", model_id)
-      with self._lock:
-        self._lines.append(f"Starting analysis for {model_id}...")
-      proc = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-      )
-      self._proc = proc
-      deadline = time.monotonic() + self._TIMEOUT
-      for line in proc.stdout:
-        with self._lock:
-          if len(self._lines) < _MAX_ANALYSIS_LINES:
-            self._lines.append(line.rstrip("\n"))
-        if time.monotonic() > deadline:
-          proc.kill()
-          with self._lock:
-            self._lines.append(
-              f"Analysis timed out after {self._TIMEOUT}s"
-            )
-          break
-      proc.wait(timeout=30)
-      if proc.returncode == 0:
-        with self._lock:
-          self._lines.append("Analysis completed successfully.")
-          self._lines.append("Committing results...")
-        self._commit_results(model_id)
-        with self._lock:
-          self._status = "done"
-          self._lines.append("Done.")
-        logger.info("Analysis succeeded: %s", model_id)
-      else:
-        with self._lock:
-          self._status = "error"
-          self._lines.append(f"Analysis failed (exit code {proc.returncode})")
-        logger.warning(
-          "Analysis failed: %s (rc=%d)",
-          model_id,
-          proc.returncode,
+            if self._status == "running":
+                return False
+            self._model = model_id
+            self._status = "running"
+            self._lines = []  # reset on new submission
+        t = threading.Thread(
+            target=self._run,
+            args=(model_id,),
+            daemon=True,
         )
-    except Exception as e:
-      with self._lock:
-        self._status = "error"
-        self._lines.append(f"Error: {e}")
-      logger.warning("Analysis error: %s: %s", model_id, e)
-    finally:
-      self._proc = None
+        t.start()
+        return True
 
-  def _commit_results(
-    self,
-    model_id: str,
-  ) -> None:
-    """Commit and push results in litmus-output."""
-    out = self.output_dir.resolve()
-    try:
-      # Stage only report/analysis artifacts, not logs or state
-      paths_to_add = ["reports", "analyses", "summary.json", "summary.md"]
-      subprocess.run(
-        ["git", "add", "--"] + paths_to_add,
-        cwd=str(out),
-        check=True,
-        capture_output=True,
-        text=True,
-      )
-      result = subprocess.run(
-        ["git", "status", "--porcelain"],
-        cwd=str(out),
-        capture_output=True,
-        text=True,
-      )
-      if not result.stdout.strip():
+    def status(
+        self,
+        offset: int = 0,
+    ) -> dict:
         with self._lock:
-          self._lines.append("No changes to commit.")
-        return
-      subprocess.run(
-        ["git", "commit", "-m", f"Add analysis for {model_id}"],
-        cwd=str(out),
-        check=True,
-        capture_output=True,
-        text=True,
-      )
-      with self._lock:
-        self._lines.append("Committed. Pushing...")
-      subprocess.run(
-        ["git", "push"],
-        cwd=str(out),
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=120,
-      )
-      with self._lock:
-        self._lines.append("Pushed successfully.")
-    except subprocess.CalledProcessError as e:
-      with self._lock:
-        self._lines.append(f"Git error: {e.stderr or e.stdout or e}")
-      logger.warning(
-        "Git commit/push failed for %s: %s",
-        model_id,
-        e,
-      )
-    except subprocess.TimeoutExpired:
-      with self._lock:
-        self._lines.append("Git push timed out.")
+            return {
+                "model": self._model,
+                "status": self._status,
+                "lines": self._lines[offset:],
+                "total_lines": len(self._lines),
+            }
+
+    def _run(self, model_id: str) -> None:
+        try:
+
+            def log_line(msg: str) -> None:
+                with self._lock:
+                    if len(self._lines) < _MAX_ANALYSIS_LINES:
+                        self._lines.append(msg)
+
+            out_dir = str(self.output_dir.resolve())
+            cmd = [
+                sys.executable,
+                "-m",
+                "hf_litmus.cli",
+                "--model",
+                model_id,
+                "--output-dir",
+                out_dir,
+            ]
+            logger.info("Analysis started: %s", model_id)
+            with self._lock:
+                self._lines.append(f"Starting analysis for {model_id}...")
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+            self._proc = proc
+            deadline = time.monotonic() + self._TIMEOUT
+            for line in proc.stdout:
+                with self._lock:
+                    if len(self._lines) < _MAX_ANALYSIS_LINES:
+                        self._lines.append(line.rstrip("\n"))
+                if time.monotonic() > deadline:
+                    proc.kill()
+                    with self._lock:
+                        self._lines.append(
+                            f"Analysis timed out after {self._TIMEOUT}s"
+                        )
+                    break
+            proc.wait(timeout=30)
+            if proc.returncode == 0:
+                with self._lock:
+                    self._lines.append("Analysis completed successfully.")
+                    self._lines.append("Committing results...")
+                self._commit_results(model_id)
+                with self._lock:
+                    self._status = "done"
+                    self._lines.append("Done.")
+                logger.info("Analysis succeeded: %s", model_id)
+            else:
+                with self._lock:
+                    self._status = "error"
+                    self._lines.append(
+                        f"Analysis failed (exit code {proc.returncode})"
+                    )
+                logger.warning(
+                    "Analysis failed: %s (rc=%d)",
+                    model_id,
+                    proc.returncode,
+                )
+        except Exception as e:
+            with self._lock:
+                self._status = "error"
+                self._lines.append(f"Error: {e}")
+            logger.warning("Analysis error: %s: %s", model_id, e)
+        finally:
+            self._proc = None
+
+    def _commit_results(
+        self,
+        model_id: str,
+    ) -> None:
+        """Commit and push results in litmus-output."""
+        out = self.output_dir.resolve()
+        try:
+            # Stage only report/analysis artifacts, not logs or state
+            paths_to_add = [
+                "reports",
+                "analyses",
+                "summary.json",
+                "summary.md",
+            ]
+            subprocess.run(
+                ["git", "add", "--", *paths_to_add],
+                cwd=str(out),
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            result = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=str(out),
+                capture_output=True,
+                text=True,
+            )
+            if not result.stdout.strip():
+                with self._lock:
+                    self._lines.append("No changes to commit.")
+                return
+            subprocess.run(
+                ["git", "commit", "-m", f"Add analysis for {model_id}"],
+                cwd=str(out),
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            with self._lock:
+                self._lines.append("Committed. Pushing...")
+            subprocess.run(
+                ["git", "push"],
+                cwd=str(out),
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            with self._lock:
+                self._lines.append("Pushed successfully.")
+        except subprocess.CalledProcessError as e:
+            with self._lock:
+                self._lines.append(f"Git error: {e.stderr or e.stdout or e}")
+            logger.warning(
+                "Git commit/push failed for %s: %s",
+                model_id,
+                e,
+            )
+        except subprocess.TimeoutExpired:
+            with self._lock:
+                self._lines.append("Git push timed out.")
 
 
 class _DashboardHandler(BaseHTTPRequestHandler):
-  """Serves the live dashboard HTML."""
+    """Serves the live dashboard HTML."""
 
-  # Set by _serve_dashboard before starting
-  html_cache: str = ""
-  json_cache: str = ""
-  csv_cache: str = ""
-  reports_dir: Path = Path()
-  analyses_dir: Path = Path()
-  retry_tracker: _RetryTracker | None = None
-  analysis_tracker: _AnalysisTracker | None = None
-  auth_token: str = ""
+    # Set by _serve_dashboard before starting
+    html_cache: str = ""
+    json_cache: str = ""
+    csv_cache: str = ""
+    reports_dir: Path = Path()
+    analyses_dir: Path = Path()
+    retry_tracker: _RetryTracker | None = None
+    analysis_tracker: _AnalysisTracker | None = None
+    auth_token: str = ""
 
-  def do_GET(self) -> None:  # noqa: N802
-    if self.path == "/api/data.json":
-      self._respond(200, "application/json", self.json_cache)
-    elif self.path == "/api/data.csv":
-      self._respond(200, "text/csv", self.csv_cache)
-    elif self.path in ("/", "/index.html"):
-      self._respond(200, "text/html", self.html_cache)
-    elif self.path == "/api/retry/status":
-      data = self.retry_tracker.status() if self.retry_tracker else {}
-      self._respond(200, "application/json", json.dumps(data))
-    elif self.path.startswith("/api/models/search"):
-      self._handle_model_search()
-    elif self.path.startswith("/api/analyze/status"):
-      self._handle_analyze_status()
-    elif self.path.startswith("/analyses/"):
-      self._serve_analysis()
-    elif self.path.startswith("/reports/"):
-      self._serve_report()
-    else:
-      self._respond(404, "text/plain", "Not found")
+    def do_GET(self) -> None:
+        if self.path == "/api/data.json":
+            self._respond(200, "application/json", self.json_cache)
+        elif self.path == "/api/data.csv":
+            self._respond(200, "text/csv", self.csv_cache)
+        elif self.path in ("/", "/index.html"):
+            self._respond(200, "text/html", self.html_cache)
+        elif self.path == "/api/retry/status":
+            data = self.retry_tracker.status() if self.retry_tracker else {}
+            self._respond(200, "application/json", json.dumps(data))
+        elif self.path.startswith("/api/models/search"):
+            self._handle_model_search()
+        elif self.path.startswith("/api/analyze/status"):
+            self._handle_analyze_status()
+        elif self.path.startswith("/analyses/"):
+            self._serve_analysis()
+        elif self.path.startswith("/reports/"):
+            self._serve_report()
+        else:
+            self._respond(404, "text/plain", "Not found")
 
-  def do_POST(self) -> None:  # noqa: N802
-    if self.auth_token:
-      provided = self.headers.get("X-Litmus-Token", "")
-      if provided != self.auth_token:
+    def do_POST(self) -> None:
+        if self.auth_token:
+            provided = self.headers.get("X-Litmus-Token", "")
+            if provided != self.auth_token:
+                self._respond(
+                    403,
+                    "application/json",
+                    '{"error":"invalid or missing X-Litmus-Token"}',
+                )
+                return
+        if self.path == "/api/retry":
+            self._handle_retry()
+        elif self.path == "/api/analyze":
+            self._handle_analyze_submit()
+        else:
+            self._respond(404, "text/plain", "Not found")
+
+    def _read_body(self) -> str | None:
+        """Read POST body with size cap. Returns None on error."""
+        length = max(0, int(self.headers.get("Content-Length", 0)))
+        if length > _MAX_BODY:
+            self._respond(
+                413,
+                "application/json",
+                '{"error":"request too large"}',
+            )
+            return None
+        return self.rfile.read(length).decode("utf-8")
+
+    def _handle_retry(self) -> None:
+        """Queue models for re-analysis."""
+        if not self.retry_tracker:
+            self._respond(
+                503,
+                "application/json",
+                '{"error":"retry not available"}',
+            )
+            return
+        body = self._read_body()
+        if body is None:
+            return
+        try:
+            data = json.loads(body)
+        except (json.JSONDecodeError, ValueError):
+            self._respond(
+                400,
+                "application/json",
+                '{"error":"invalid json"}',
+            )
+            return
+        models = data.get("models", [])
+        if not isinstance(models, list) or not models:
+            self._respond(
+                400,
+                "application/json",
+                '{"error":"models list required"}',
+            )
+            return
+        if len(models) > _MAX_RETRY_MODELS:
+            self._respond(
+                400,
+                "application/json",
+                f'{{"error":"max {_MAX_RETRY_MODELS} models per request"}}',
+            )
+            return
+        queued = []
+        for mid in models:
+            if isinstance(mid, str) and _MODEL_ID_RE.fullmatch(mid.strip()):
+                self.retry_tracker.submit(mid.strip())
+                queued.append(mid.strip())
         self._respond(
-          403,
-          "application/json",
-          '{"error":"invalid or missing X-Litmus-Token"}',
+            200,
+            "application/json",
+            json.dumps(
+                {
+                    "status": "queued",
+                    "models": queued,
+                }
+            ),
         )
-        return
-    if self.path == "/api/retry":
-      self._handle_retry()
-    elif self.path == "/api/analyze":
-      self._handle_analyze_submit()
-    else:
-      self._respond(404, "text/plain", "Not found")
 
-  def _read_body(self) -> str | None:
-    """Read POST body with size cap. Returns None on error."""
-    length = max(0, int(self.headers.get("Content-Length", 0)))
-    if length > _MAX_BODY:
-      self._respond(
-        413,
-        "application/json",
-        '{"error":"request too large"}',
-      )
-      return None
-    return self.rfile.read(length).decode("utf-8")
+    def _handle_model_search(self) -> None:
+        """Proxy model search to HuggingFace Hub API."""
+        parsed = urllib.parse.urlparse(self.path)
+        qs = urllib.parse.parse_qs(parsed.query)
+        query = qs.get("q", [""])[0].strip()
+        if not query or len(query) < 2:
+            self._respond(200, "application/json", "[]")
+            return
+        try:
+            url = (
+                "https://huggingface.co/api/models?"
+                + urllib.parse.urlencode(
+                    {
+                        "search": query,
+                        "limit": "20",
+                        "sort": "downloads",
+                        "direction": "-1",
+                    }
+                )
+            )
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "hf-litmus"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read())
+            results = [
+                m.get("modelId", m.get("id", ""))
+                for m in data
+                if isinstance(m, dict)
+            ]
+            self._respond(
+                200,
+                "application/json",
+                json.dumps(results),
+            )
+        except Exception as e:
+            logger.warning("HF search error: %s", e)
+            self._respond(200, "application/json", "[]")
 
-  def _handle_retry(self) -> None:
-    """Queue models for re-analysis."""
-    if not self.retry_tracker:
-      self._respond(
-        503,
-        "application/json",
-        '{"error":"retry not available"}',
-      )
-      return
-    body = self._read_body()
-    if body is None:
-      return
-    try:
-      data = json.loads(body)
-    except (json.JSONDecodeError, ValueError):
-      self._respond(
-        400,
-        "application/json",
-        '{"error":"invalid json"}',
-      )
-      return
-    models = data.get("models", [])
-    if not isinstance(models, list) or not models:
-      self._respond(
-        400,
-        "application/json",
-        '{"error":"models list required"}',
-      )
-      return
-    if len(models) > _MAX_RETRY_MODELS:
-      self._respond(
-        400,
-        "application/json",
-        f'{{"error":"max {_MAX_RETRY_MODELS} models per request"}}',
-      )
-      return
-    queued = []
-    for mid in models:
-      if isinstance(mid, str) and _MODEL_ID_RE.fullmatch(mid.strip()):
-        self.retry_tracker.submit(mid.strip())
-        queued.append(mid.strip())
-    self._respond(
-      200,
-      "application/json",
-      json.dumps(
-        {
-          "status": "queued",
-          "models": queued,
-        }
-      ),
-    )
+    def _handle_analyze_submit(self) -> None:
+        """Start a model analysis job."""
+        if not self.analysis_tracker:
+            self._respond(
+                503,
+                "application/json",
+                '{"error":"analysis not available"}',
+            )
+            return
+        body = self._read_body()
+        if body is None:
+            return
+        try:
+            data = json.loads(body)
+        except (json.JSONDecodeError, ValueError):
+            self._respond(
+                400,
+                "application/json",
+                '{"error":"invalid json"}',
+            )
+            return
+        model = data.get("model", "").strip()
+        if not model or not _MODEL_ID_RE.fullmatch(model):
+            self._respond(
+                400,
+                "application/json",
+                '{"error":"model must be provider/name"}',
+            )
+            return
+        ok = self.analysis_tracker.submit(model)
+        if not ok:
+            self._respond(
+                409,
+                "application/json",
+                '{"error":"analysis already running"}',
+            )
+            return
+        self._respond(
+            200,
+            "application/json",
+            json.dumps(
+                {
+                    "status": "started",
+                    "model": model,
+                }
+            ),
+        )
 
-  def _handle_model_search(self) -> None:
-    """Proxy model search to HuggingFace Hub API."""
-    parsed = urllib.parse.urlparse(self.path)
-    qs = urllib.parse.parse_qs(parsed.query)
-    query = qs.get("q", [""])[0].strip()
-    if not query or len(query) < 2:
-      self._respond(200, "application/json", "[]")
-      return
-    try:
-      url = "https://huggingface.co/api/models?" + urllib.parse.urlencode(
-        {
-          "search": query,
-          "limit": "20",
-          "sort": "downloads",
-          "direction": "-1",
-        }
-      )
-      req = urllib.request.Request(
-        url,
-        headers={"User-Agent": "hf-litmus"},
-      )
-      with urllib.request.urlopen(req, timeout=10) as resp:
-        data = json.loads(resp.read())
-      results = [m.get("modelId", m.get("id", "")) for m in data if isinstance(m, dict)]
-      self._respond(
-        200,
-        "application/json",
-        json.dumps(results),
-      )
-    except Exception as e:
-      logger.warning("HF search error: %s", e)
-      self._respond(200, "application/json", "[]")
+    def _handle_analyze_status(self) -> None:
+        """Return current analysis status and output."""
+        if not self.analysis_tracker:
+            self._respond(
+                200,
+                "application/json",
+                json.dumps(
+                    {
+                        "model": "",
+                        "status": "idle",
+                        "lines": [],
+                        "total_lines": 0,
+                    }
+                ),
+            )
+            return
+        parsed = urllib.parse.urlparse(self.path)
+        qs = urllib.parse.parse_qs(parsed.query)
+        offset = max(0, int(qs.get("offset", ["0"])[0]))
+        data = self.analysis_tracker.status(offset)
+        self._respond(200, "application/json", json.dumps(data))
 
-  def _handle_analyze_submit(self) -> None:
-    """Start a model analysis job."""
-    if not self.analysis_tracker:
-      self._respond(
-        503,
-        "application/json",
-        '{"error":"analysis not available"}',
-      )
-      return
-    body = self._read_body()
-    if body is None:
-      return
-    try:
-      data = json.loads(body)
-    except (json.JSONDecodeError, ValueError):
-      self._respond(
-        400,
-        "application/json",
-        '{"error":"invalid json"}',
-      )
-      return
-    model = data.get("model", "").strip()
-    if not model or not _MODEL_ID_RE.fullmatch(model):
-      self._respond(
-        400,
-        "application/json",
-        '{"error":"model must be provider/name"}',
-      )
-      return
-    ok = self.analysis_tracker.submit(model)
-    if not ok:
-      self._respond(
-        409,
-        "application/json",
-        '{"error":"analysis already running"}',
-      )
-      return
-    self._respond(
-      200,
-      "application/json",
-      json.dumps(
-        {
-          "status": "started",
-          "model": model,
-        }
-      ),
-    )
+    def _serve_report(self) -> None:
+        """Serve a markdown report as styled HTML."""
+        rel = urllib.parse.unquote(self.path.lstrip("/"))
+        report_path = (
+            self.reports_dir / rel.split("reports/", 1)[-1]
+        ).resolve()
+        # Verify path stays within reports_dir
+        try:
+            report_path.relative_to(self.reports_dir.resolve())
+        except ValueError:
+            self._respond(403, "text/plain", "Forbidden")
+            return
+        if not report_path.is_file():
+            self._respond(
+                404,
+                "text/plain",
+                "Not found",
+            )
+            return
+        md_content = report_path.read_text(encoding="utf-8")
+        title = report_path.stem
+        if report_path.parent != self.reports_dir.resolve():
+            title = f"{report_path.parent.name}/{title}"
+        html = _render_markdown_page(title, md_content)
+        self._respond(200, "text/html", html)
 
-  def _handle_analyze_status(self) -> None:
-    """Return current analysis status and output."""
-    if not self.analysis_tracker:
-      self._respond(
-        200,
-        "application/json",
-        json.dumps(
-          {
-            "model": "",
-            "status": "idle",
-            "lines": [],
-            "total_lines": 0,
-          }
-        ),
-      )
-      return
-    parsed = urllib.parse.urlparse(self.path)
-    qs = urllib.parse.parse_qs(parsed.query)
-    offset = max(0, int(qs.get("offset", ["0"])[0]))
-    data = self.analysis_tracker.status(offset)
-    self._respond(200, "application/json", json.dumps(data))
+    def _serve_analysis(self) -> None:
+        """Serve an analysis markdown as styled HTML."""
+        rel = urllib.parse.unquote(self.path.lstrip("/"))
+        analysis_path = (
+            self.analyses_dir / rel.split("analyses/", 1)[-1]
+        ).resolve()
+        # Verify path stays within analyses_dir
+        try:
+            analysis_path.relative_to(self.analyses_dir.resolve())
+        except ValueError:
+            self._respond(403, "text/plain", "Forbidden")
+            return
+        if not analysis_path.is_file():
+            self._respond(
+                404,
+                "text/plain",
+                "Not found",
+            )
+            return
+        md_content = analysis_path.read_text(encoding="utf-8")
+        title = analysis_path.parent.name
+        html = _render_markdown_page(title, md_content)
+        self._respond(200, "text/html", html)
 
-  def _serve_report(self) -> None:
-    """Serve a markdown report as styled HTML."""
-    rel = urllib.parse.unquote(self.path.lstrip("/"))
-    report_path = (
-      self.reports_dir / rel.split("reports/", 1)[-1]
-    ).resolve()
-    # Verify path stays within reports_dir
-    try:
-      report_path.relative_to(self.reports_dir.resolve())
-    except ValueError:
-      self._respond(403, "text/plain", "Forbidden")
-      return
-    if not report_path.is_file():
-      self._respond(
-        404,
-        "text/plain",
-        "Not found",
-      )
-      return
-    md_content = report_path.read_text(encoding="utf-8")
-    title = report_path.stem
-    if report_path.parent != self.reports_dir.resolve():
-      title = f"{report_path.parent.name}/{title}"
-    html = _render_markdown_page(title, md_content)
-    self._respond(200, "text/html", html)
+    def _respond(self, code: int, ctype: str, body: str) -> None:
+        encoded = body.encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(encoded)))
+        self.end_headers()
+        self.wfile.write(encoded)
 
-  def _serve_analysis(self) -> None:
-    """Serve an analysis markdown as styled HTML."""
-    rel = urllib.parse.unquote(self.path.lstrip("/"))
-    analysis_path = (
-      self.analyses_dir / rel.split("analyses/", 1)[-1]
-    ).resolve()
-    # Verify path stays within analyses_dir
-    try:
-      analysis_path.relative_to(self.analyses_dir.resolve())
-    except ValueError:
-      self._respond(403, "text/plain", "Forbidden")
-      return
-    if not analysis_path.is_file():
-      self._respond(
-        404,
-        "text/plain",
-        "Not found",
-      )
-      return
-    md_content = analysis_path.read_text(encoding="utf-8")
-    title = analysis_path.parent.name
-    html = _render_markdown_page(title, md_content)
-    self._respond(200, "text/html", html)
-
-  def _respond(self, code: int, ctype: str, body: str) -> None:
-    encoded = body.encode("utf-8")
-    self.send_response(code)
-    self.send_header("Content-Type", ctype)
-    self.send_header("Content-Length", str(len(encoded)))
-    self.end_headers()
-    self.wfile.write(encoded)
-
-  def log_message(self, format: str, *args: object) -> None:
-    pass  # suppress per-request logging
+    def log_message(self, format: str, *args: object) -> None:
+        pass  # suppress per-request logging
 
 
 def _serve_dashboard(
-  output_dir: Path,
-  sort: str,
-  port: int,
-  refresh_minutes: int,
+    output_dir: Path,
+    sort: str,
+    port: int,
+    refresh_minutes: int,
 ) -> int:
-  """Run a local HTTP server with auto-refresh."""
-  reports_dir = output_dir / "reports"
-  _DashboardHandler.reports_dir = reports_dir
-  _DashboardHandler.analyses_dir = output_dir / "analyses"
-  _DashboardHandler.retry_tracker = _RetryTracker(output_dir)
-  _DashboardHandler.analysis_tracker = _AnalysisTracker(output_dir)
-  auth_token = secrets.token_urlsafe(32)
-  _DashboardHandler.auth_token = auth_token
-  refresh_secs = refresh_minutes * 60
+    """Run a local HTTP server with auto-refresh."""
+    reports_dir = output_dir / "reports"
+    _DashboardHandler.reports_dir = reports_dir
+    _DashboardHandler.analyses_dir = output_dir / "analyses"
+    _DashboardHandler.retry_tracker = _RetryTracker(output_dir)
+    _DashboardHandler.analysis_tracker = _AnalysisTracker(output_dir)
+    auth_token = secrets.token_urlsafe(32)
+    _DashboardHandler.auth_token = auth_token
+    refresh_secs = refresh_minutes * 60
 
-  def refresh() -> None:
-    reports = _load_reports(reports_dir)
-    if not reports:
-      _DashboardHandler.html_cache = (
-        "<html><body><h1>No reports found</h1></body></html>"
-      )
-      _DashboardHandler.json_cache = "{}"
-      _DashboardHandler.csv_cache = ""
-      return
-    data = _compute_dashboard(reports, sort, output_dir)
-    _DashboardHandler.html_cache = _render_html(
-      data, refresh_seconds=refresh_secs,
-      auth_token=auth_token,
-    )
-    _DashboardHandler.json_cache = _render_json(data)
-    _DashboardHandler.csv_cache = _render_csv(data)
+    def refresh() -> None:
+        reports = _load_reports(reports_dir)
+        if not reports:
+            _DashboardHandler.html_cache = (
+                "<html><body><h1>No reports found</h1></body></html>"
+            )
+            _DashboardHandler.json_cache = "{}"
+            _DashboardHandler.csv_cache = ""
+            return
+        data = _compute_dashboard(reports, sort, output_dir)
+        _DashboardHandler.html_cache = _render_html(
+            data,
+            refresh_seconds=refresh_secs,
+            auth_token=auth_token,
+        )
+        _DashboardHandler.json_cache = _render_json(data)
+        _DashboardHandler.csv_cache = _render_csv(data)
 
-  # Initial load
-  refresh()
+    # Initial load
+    refresh()
 
-  # Background refresh thread
-  stop_event = threading.Event()
+    # Background refresh thread
+    stop_event = threading.Event()
 
-  def _refresh_loop() -> None:
-    while not stop_event.wait(refresh_secs):
-      try:
-        refresh()
-      except Exception as e:
-        print(f"Refresh error: {e}", file=sys.stderr)
+    def _refresh_loop() -> None:
+        while not stop_event.wait(refresh_secs):
+            try:
+                refresh()
+            except Exception as e:
+                print(f"Refresh error: {e}", file=sys.stderr)
 
-  t = threading.Thread(target=_refresh_loop, daemon=True)
-  t.start()
+    t = threading.Thread(target=_refresh_loop, daemon=True)
+    t.start()
 
-  server = HTTPServer(("127.0.0.1", port), _DashboardHandler)
-  print(f"Serving dashboard at http://127.0.0.1:{port}")
-  print(f"Auth token: {auth_token}")
-  print(f"Rescanning {reports_dir} every {refresh_minutes} min")
-  print("Press Ctrl+C to stop")
+    server = HTTPServer(("127.0.0.1", port), _DashboardHandler)
+    print(f"Serving dashboard at http://127.0.0.1:{port}")
+    print(f"Auth token: {auth_token}")
+    print(f"Rescanning {reports_dir} every {refresh_minutes} min")
+    print("Press Ctrl+C to stop")
 
-  try:
-    server.serve_forever()
-  except KeyboardInterrupt:
-    print("\nShutting down")
-    stop_event.set()
-    server.shutdown()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nShutting down")
+        stop_event.set()
+        server.shutdown()
 
-  return 0
+    return 0
