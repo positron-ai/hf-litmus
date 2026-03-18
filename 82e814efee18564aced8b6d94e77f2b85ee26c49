@@ -1,0 +1,23 @@
+.github/workflows/ci.yml
+  d895ae2c271036c2 14-18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.11",
+  "base_commit_sha": "82e814efee18564aced8b6d94e77f2b85ee26c49",
+  "prompts": {
+    "d895ae2c271036c2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c716c8b0-83ee-4664-8322-3477e3df2917",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "John Wiegley <johnw@newartisans.com>",
+      "messages": [],
+      "total_additions": 10,
+      "total_deletions": 4,
+      "accepted_lines": 5,
+      "overriden_lines": 0
+    }
+  }
+}
