@@ -1,0 +1,35 @@
+tests/test_models.py
+  d895ae2c271036c2 1-130
+tests/test_config.py
+  d895ae2c271036c2 1-35
+tests/test_feature_areas.py
+  d895ae2c271036c2 1-33
+tests/test_model_tags.py
+  d895ae2c271036c2 1-103
+tests/test_error_classifier.py
+  d895ae2c271036c2 1-131
+tests/test_state.py
+  d895ae2c271036c2 1-74
+tests/test_imports.py
+  d895ae2c271036c2 1-69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.11",
+  "base_commit_sha": "902d5b4ca47505248fa3bb86786333798f23378e",
+  "prompts": {
+    "d895ae2c271036c2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c716c8b0-83ee-4664-8322-3477e3df2917",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "John Wiegley <johnw@newartisans.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 787,
+      "overriden_lines": 0
+    }
+  }
+}
