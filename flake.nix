@@ -63,6 +63,17 @@
           doCheck = false; # tests run via checks.tests
         };
 
+        apps.default = {
+          type = "app";
+          program = toString (pkgs.writeShellScript "hf-litmus-dashboard" ''
+            exec ${self.packages.${system}.default}/bin/hf-litmus \
+              dashboard \
+              --host 0.0.0.0 \
+              --tron-url ghpos:positron-ai/tron \
+              "$@"
+          '');
+        };
+
         devShells.default = pkgs.mkShell {
           packages = [
             pythonEnv
