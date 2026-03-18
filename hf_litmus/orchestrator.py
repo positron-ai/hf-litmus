@@ -269,7 +269,6 @@ class LitmusOrchestrator:
             pipeline_tag=pipeline_tag,
             downloads=downloads,
             likes=likes,
-            ingest_version=self.ingest_runner.version,
         )
 
         with tempfile.TemporaryDirectory(prefix="litmus_trace_") as trace_tmp:
@@ -320,6 +319,7 @@ class LitmusOrchestrator:
                 timeout=self.config.ingest_timeout,
                 dump_intermediates=self.config.dump_intermediates,
             )
+            result.ingest_version = ingest_runner.version
 
             model_name = (
                 model_id.replace("/", "_").replace(".", "_").replace("-", "_")
