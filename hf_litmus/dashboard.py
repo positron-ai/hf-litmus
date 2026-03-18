@@ -63,6 +63,12 @@ def create_dashboard_parser() -> argparse.ArgumentParser:
         help="Sort order for failing models",
     )
     parser.add_argument(
+        "--host",
+        type=str,
+        default="127.0.0.1",
+        help="Address to bind the HTTP server to",
+    )
+    parser.add_argument(
         "--port",
         type=int,
         default=8150,
@@ -102,6 +108,7 @@ def dashboard_main(argv: list[str]) -> int:
     return _serve_dashboard(
         args.output_dir,
         args.sort,
+        args.host,
         args.port,
         args.refresh_interval,
         tron_url=args.tron_url,
@@ -2641,6 +2648,7 @@ class _DashboardHandler(BaseHTTPRequestHandler):
 def _serve_dashboard(
     output_dir: Path,
     sort: str,
+    host: str,
     port: int,
     refresh_minutes: int,
     tron_url: str | None = None,
@@ -2693,8 +2701,8 @@ def _serve_dashboard(
     t = threading.Thread(target=_refresh_loop, daemon=True)
     t.start()
 
-    server = HTTPServer(("127.0.0.1", port), _DashboardHandler)
-    print(f"Serving dashboard at http://127.0.0.1:{port}")
+    server = HTTPServer((host, port), _DashboardHandler)
+    print(f"Serving dashboard at http://{host}:{port}")
     print(f"Auth token: {auth_token}")
     print(f"Rescanning {reports_dir} every {refresh_minutes} min")
     print("Press Ctrl+C to stop")
