@@ -1,46 +1,28 @@
 # hf-litmus
 
-Continuous model compatibility testing for [Tron](https://github.com/positron-ai/tron),
-Positron's hardware compiler. hf-litmus automatically evaluates HuggingFace models
-through the Tron ingest pipeline (torch.export + Haskell IR compilation), identifies
-compatibility gaps, and optionally launches Claude Code for deep failure analysis.
+I got tired of manually checking whether HuggingFace models could make it
+through [Tron](https://github.com/positron-ai/tron)'s compilation pipeline. There are thousands of
+models on the Hub, new ones every day, and I wanted a tool that would just grind
+through them -- `torch.export`, then Haskell IR ingestion -- and tell me exactly
+where each one breaks (or doesn't).
 
-## Features
+That's what hf-litmus does. Point it at a model and it runs the full pipeline.
+Point it at the Hub and it'll chew through the top trending models in batch.
+When something fails, it can spin up Claude Code in an isolated git worktree to
+do a deep analysis of the failure, complete with a multi-model consensus review.
 
-- **Batch enumeration** of HuggingFace Hub models by trending/recent activity
-- **Export testing** via `torch.export` with bundled export scripts
-- **Full pipeline testing** through Haskell ingest (Tron is cloned on demand)
-- **Deep analysis** using Claude Code in git worktrees with multi-model consensus review
-- **Interactive dashboard** with live retry, model search, and analysis submission
-- **Report generation** per-model and aggregate summary with failure classification
-- **Notion publishing** for sharing results via MCP integration
+## Getting started
 
-## Prerequisites
-
-- Python 3.10+
-- [uv](https://docs.astral.sh/uv/) (for managing export script dependencies)
-- [git](https://git-scm.com/) (for on-demand Tron cloning during ingest and deep analysis)
-
-For full pipeline testing (export + Haskell ingest), the Tron clone must have
-GHC and Cabal available (i.e., run inside `nix develop` from the Tron repo).
-
-For deep analysis:
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI
-
-## Installation
+You'll need Python 3.10+, [uv](https://docs.astral.sh/uv/), and git. For
+ingest testing (the Haskell stage), Tron gets cloned automatically -- you don't
+need a local checkout.
 
 ```bash
-# Clone with submodules
 git clone --recurse-submodules https://github.com/positron-ai/hf-litmus.git
 cd hf-litmus
-
-# Install the package
-uv pip install -e .
-# Or with Notion integration:
-uv pip install -e '.[notion]'
+nix develop          # recommended: sets up everything
+uv pip install -e .  # or install directly
 ```
-
-## Quick Start
 
 ### Test a single model
 
@@ -48,21 +30,16 @@ uv pip install -e '.[notion]'
 hf-litmus --model meta-llama/Llama-3.1-8B
 ```
 
-This runs the full pipeline: torch.export (using bundled scripts) then Haskell
-ingest (Tron is cloned automatically from GitHub). On first ingest, expect a
-short delay while Tron is cloned.
+This runs the full pipeline: `torch.export` first (using bundled scripts), then
+Haskell ingest (Tron is shallow-cloned from GitHub the first time). Expect a
+short delay on the first run while Tron is fetched.
 
 ### Batch processing
 
 ```bash
-# Test top 100 trending models
-hf-litmus --batch-size 100
-
-# Process a list of models in parallel
-hf-litmus --model-file models.txt -j 4
-
-# Continuous daemon mode
-hf-litmus --no-once --interval 30
+hf-litmus --batch-size 100             # top 100 trending models
+hf-litmus --model-file models.txt -j 4 # parallel from a list
+hf-litmus --no-once --interval 30      # continuous daemon mode
 ```
 
 ### Dashboard
@@ -73,73 +50,78 @@ hf-litmus dashboard --serve --output-dir ./litmus-output
 
 ## Configuration
 
-### Tron URL
-
-hf-litmus clones Tron on demand whenever ingest or deep analysis is needed.
-By default it clones from `https://github.com/positron-ai/tron.git`. Override with:
+hf-litmus clones Tron on demand. By default it uses
+`https://github.com/positron-ai/tron.git`. You can override this:
 
 ```bash
-# CLI flag
 hf-litmus --tron-url https://github.com/your-fork/tron.git --model my/model
-
-# Environment variable
+# or
 export LITMUS_TRON_URL=https://github.com/your-fork/tron.git
-hf-litmus --model my/model
 ```
 
 A shallow clone (`--depth=1`) is used. For ingest, one clone is reused across
 all models in a session and cleaned up on exit. For deep analysis, each model
-gets its own fresh clone (with an isolated git worktree) that is removed after
-results are collected.
-
-### CLI Options
+gets its own fresh clone with an isolated worktree.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--output-dir` | `./litmus-output` | Directory for reports and state |
-| `--tron-url` | GitHub URL | Tron repository URL for on-demand cloning |
-| `--model` | — | Test a specific model by HF ID |
-| `--model-file` | — | File with model IDs (one per line) |
+| `--output-dir` | `./litmus-output` | Reports and state directory |
+| `--tron-url` | GitHub URL | Tron repo URL for on-demand cloning |
+| `--model` | -- | Test a specific model by HF ID |
+| `--model-file` | -- | File with model IDs, one per line |
 | `--batch-size` | 100 | Models per batch |
 | `-j, --jobs` | 1 | Parallel workers |
 | `--once/--no-once` | `--once` | Single batch vs continuous |
-| `--daemon` | off | Continuous mode (alias for `--no-once`) |
 | `--deep-analysis/--no-deep-analysis` | on | Claude Code failure analysis |
-| `--deep-analysis-timeout` | 7200 | Seconds for Claude Code session |
-| `--consensus-review/--no-consensus-review` | on | Multi-model review during analysis |
-| `--hf-token` | — | HuggingFace token for gated models |
-| `--export-timeout` | 600 | Seconds for torch.export |
+| `--consensus-review/--no-consensus-review` | on | Multi-model review |
+| `--hf-token` | -- | HuggingFace token for gated models |
+| `--export-timeout` | 600 | Seconds for `torch.export` |
 | `--ingest-timeout` | 300 | Seconds for Haskell ingest |
 | `-v, --verbose` | off | Debug logging |
 
-## Repository Structure
+## Development
+
+```bash
+nix develop  # enters a shell with Python, ruff, pytest, lefthook
+lefthook install
+```
+
+Pre-commit hooks run formatting, linting, tests, and coverage checks in
+parallel. You can also run them individually:
+
+```bash
+ruff check .                         # lint
+ruff format --check .                # formatting
+python -m pytest tests/ -x -q        # tests
+nix flake check                      # everything (lint + format + tests + coverage + build)
+```
+
+## Project layout
 
 ```
 hf-litmus/
-├── hf_litmus/          # Main Python package
-│   ├── cli.py          # CLI entry point
-│   ├── orchestrator.py # Core pipeline orchestration
-│   ├── dashboard.py    # Web dashboard + HTTP server
-│   ├── deep_analysis.py# Claude Code integration
-│   ├── ingest/         # Bundled export tooling
-│   │   ├── export/     # torch.export scripts + uv project
-│   │   └── runtime/    # Shared Python utilities
-│   └── ...
-├── litmus-outputs/     # Submodule: persistent results repo
-├── pyproject.toml
-└── README.md
+  hf_litmus/           Main package
+    cli.py             CLI entry point
+    orchestrator.py    Pipeline orchestration
+    dashboard.py       Web dashboard + HTTP server
+    deep_analysis.py   Claude Code integration
+    error_classifier.py Error pattern matching
+    ingest/            Bundled torch.export scripts
+  tests/               Unit and property-based tests
+  flake.nix            Nix development shell and CI checks
+  lefthook.yml         Pre-commit hooks
 ```
 
 ## Output
 
-Results are written to `--output-dir` (default `./litmus-output/`):
+Results go to `--output-dir` (default `./litmus-output/`):
 
-- `state.json` — Persistent state tracking all tested models
-- `reports/<model>.md` — Per-model Markdown reports
-- `analyses/<model>/` — Deep analysis artifacts (analysis.md, gap-summary.json)
-- `summary.json` — Aggregate statistics
-- `litmus.log` — Rotating log file
+- `state.json` -- persistent state tracking all tested models
+- `reports/<model>.md` -- per-model Markdown reports
+- `analyses/<model>/` -- deep analysis artifacts
+- `summary.json` -- aggregate statistics
+- `litmus.log` -- rotating log
 
 ## License
 
-Internal use only. Copyright Positron AI.
+BSD 3-Clause. See [LICENSE.md](LICENSE.md).
