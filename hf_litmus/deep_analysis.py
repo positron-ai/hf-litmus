@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar, Optional
 
-from .models import FailureClass, FailureStage, ModelResult
+from .models import ModelResult
 from .prompts import load_prompt_template, render_template
 
 logger = logging.getLogger(__name__)
@@ -66,37 +66,6 @@ def _sanitize_model_id(model_id: str) -> str:
     )
 
 
-# Stage guidance section names keyed by (FailureStage, FailureClass).
-_STAGE_SECTION_MAP: dict[
-    tuple[Optional[FailureStage], Optional[FailureClass]],
-    str,
-] = {
-    (
-        FailureStage.EXPORT,
-        FailureClass.TRUST_REMOTE_CODE,
-    ): "stage_trust_remote_code",
-    (
-        FailureStage.EXPORT,
-        FailureClass.UNSUPPORTED_DYNAMIC,
-    ): "stage_unsupported_dynamic",
-}
-
-
-def _stage_section_name(
-    stage: Optional[FailureStage],
-    fclass: Optional[FailureClass],
-) -> str:
-    """Map failure stage/class to a template section name."""
-    key = (stage, fclass)
-    if key in _STAGE_SECTION_MAP:
-        return _STAGE_SECTION_MAP[key]
-    if stage == FailureStage.EXPORT:
-        return "stage_export_default"
-    if stage == FailureStage.INGEST:
-        return "stage_ingest"
-    return ""
-
-
 class DeepAnalyzer:
     def __init__(
         self,
@@ -109,7 +78,7 @@ class DeepAnalyzer:
         self.output_dir = output_dir
         self.timeout = timeout
         self.consensus_review = consensus_review
-        self._template = load_prompt_template()
+        self._addendum = load_prompt_template()
 
     def analyze(
         self,
@@ -248,6 +217,28 @@ class DeepAnalyzer:
             branch,
         )
 
+    @staticmethod
+    def _read_ingest_command(worktree_path: Path) -> str:
+        """Read the /ingest command template from the Tron worktree.
+
+        Returns the command body with YAML front matter stripped.
+        Raises FileNotFoundError if the command file is missing.
+        """
+        cmd_path = worktree_path / ".claude" / "commands" / "ingest.md"
+        if not cmd_path.exists():
+            raise FileNotFoundError(
+                f"Tron /ingest command not found at {cmd_path}. "
+                "Ensure the Tron clone includes "
+                ".claude/commands/ingest.md"
+            )
+        text = cmd_path.read_text(encoding="utf-8")
+        # Strip YAML front matter (---\n...\n---)
+        if text.startswith("---"):
+            end = text.find("---", 3)
+            if end != -1:
+                text = text[end + 3 :].lstrip()
+        return text
+
     def _build_prompt(
         self,
         model_id: str,
@@ -255,12 +246,18 @@ class DeepAnalyzer:
         worktree_path: Path,
         analysis_dir: Path,
     ) -> str:
-        """Build a detailed prompt for Claude Code.
+        """Build a prompt that combines the Tron /ingest command
+        with the HF-Litmus addendum.
 
-        Loads the prompt from the Markdown template in
-        hf_litmus/prompts/deep_analysis_prompt.md and
-        renders it with model-specific variables.
+        Reads .claude/commands/ingest.md from the Tron worktree,
+        substitutes the model ID, then appends the litmus-specific
+        addendum with failure context and output requirements.
         """
+        # Read and populate the Tron /ingest command
+        ingest_cmd = self._read_ingest_command(worktree_path)
+        ingest_cmd = ingest_cmd.replace("$ARGUMENTS", model_id)
+
+        # Build variables for the litmus addendum
         failure_stage = (
             result.failure_stage.value if result.failure_stage else "unknown"
         )
@@ -290,32 +287,21 @@ class DeepAnalyzer:
             "analysis_dir": str(analysis_dir),
         }
 
-        # Select and render stage guidance section
-        section = _stage_section_name(
-            result.failure_stage,
-            result.failure_class,
-        )
-        if section and section in self._template:
-            variables["stage_guidance"] = render_template(
-                self._template[section],
-                variables,
-            )
-        else:
-            variables["stage_guidance"] = ""
-
         # Conditionally include consensus review
         if self.consensus_review:
             variables["consensus_section"] = render_template(
-                self._template["consensus_review"],
+                self._addendum["consensus_review"],
                 variables,
             )
         else:
             variables["consensus_section"] = ""
 
-        return render_template(
-            self._template["main"],
+        addendum = render_template(
+            self._addendum["main"],
             variables,
         )
+
+        return ingest_cmd + "\n\n" + addendum
 
     _RATE_LIMIT_PATTERNS: ClassVar[list[str]] = [
         r"rate.?limit",
@@ -396,6 +382,37 @@ class DeepAnalyzer:
         )
         return ""
 
+    @staticmethod
+    def _find_ingest_workdirs(model_id: str) -> list[Path]:
+        """Find /tmp/ingest_* work directories for this model.
+
+        The Tron /ingest command writes artifacts to
+        /tmp/ingest_TRON_NAME/ where TRON_NAME is derived
+        from the model ID with underscores.
+        """
+        tmp = Path(tempfile.gettempdir())
+        if not tmp.exists():
+            return []
+        # Try both the sanitized name and the underscore variant
+        # that the /ingest command uses for TRON_NAME.
+        candidates: list[Path] = []
+        for d in tmp.iterdir():
+            if d.is_dir() and d.name.startswith("ingest_"):
+                candidates.append(d)
+        if not candidates:
+            return []
+        # Filter to directories that plausibly match this model
+        model_lower = model_id.lower()
+        # e.g. "meta-llama/Llama-3.2-1B" -> keywords: llama, 3, 2, 1b
+        parts = re.split(r"[/\-_. ]+", model_lower)
+        keywords = [p for p in parts if len(p) >= 2]
+        matched: list[Path] = []
+        for d in candidates:
+            name = d.name.lower()
+            if all(kw in name for kw in keywords):
+                matched.append(d)
+        return matched
+
     def _collect_results(
         self,
         model_id: str,
@@ -403,7 +420,7 @@ class DeepAnalyzer:
         branch: str,
         analysis_dir: Path,
     ) -> AnalysisResult:
-        """Collect results from the worktree."""
+        """Collect results from the worktree and ingest work dirs."""
         ar = AnalysisResult(
             model_id=model_id,
             worktree_path=worktree_path,
@@ -449,6 +466,10 @@ class DeepAnalyzer:
             if diff_result.returncode == 0:
                 ar.diff = diff_result.stdout
 
+        # Discover /tmp/ingest_* work directories from the
+        # Tron /ingest command for additional artifact sources.
+        ingest_workdirs = self._find_ingest_workdirs(model_id)
+
         # Look for analysis.md in various locations
         sanitized = _sanitize_model_id(model_id)
         analysis_paths = [
@@ -469,6 +490,9 @@ class DeepAnalyzer:
             / sanitized
             / "analysis.md",
         ]
+        # Also check ingest work directories
+        for wd in ingest_workdirs:
+            analysis_paths.append(wd / "analysis.md")
         for p in analysis_paths:
             if p.exists():
                 ar.analysis_path = p
@@ -502,6 +526,9 @@ class DeepAnalyzer:
             / sanitized
             / "gap-summary.json",
         ]
+        # Also check ingest work directories
+        for wd in ingest_workdirs:
+            gap_paths.append(wd / "gap-summary.json")
         for p in gap_paths:
             if p.exists():
                 # Copy to our output dir if it's in worktree
@@ -527,6 +554,15 @@ class DeepAnalyzer:
                         )
                 except (json.JSONDecodeError, KeyError) as e:
                     logger.warning("Failed to parse gap-summary.json: %s", e)
+                break
+
+        # Copy the ingest run ledger if available
+        for wd in ingest_workdirs:
+            ledger = wd / "ledger.md"
+            if ledger.exists():
+                dest = analysis_dir / "ledger.md"
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(ledger, dest)
                 break
 
         return ar
