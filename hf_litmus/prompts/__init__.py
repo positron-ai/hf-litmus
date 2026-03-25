@@ -17,10 +17,6 @@ logger = logging.getLogger(__name__)
 REQUIRED_SECTIONS = frozenset(
     {
         "main",
-        "stage_trust_remote_code",
-        "stage_unsupported_dynamic",
-        "stage_export_default",
-        "stage_ingest",
         "consensus_review",
     }
 )
