@@ -621,16 +621,51 @@ def _export_model_impl(
         rope_scaling = dict(rope_scaling)
         if "rope_type" in rope_scaling and "type" not in rope_scaling:
             rope_scaling["type"] = rope_scaling.pop("rope_type")
+        # Gemma4 uses a per-layer-type nested rope_scaling:
+        #   {"sliding_attention": {...}, "full_attention": {...}}
+        # The Haskell parser expects a flat {"type": ...} object.
+        # Flatten by picking the sliding_attention type as the primary;
+        # full dual-RoPE support requires a Haskell pipeline extension.
+        if "type" not in rope_scaling and (
+            "sliding_attention" in rope_scaling
+            or "full_attention" in rope_scaling
+        ):
+            for key in ("sliding_attention", "full_attention"):
+                sub = rope_scaling.get(key, {})
+                if "rope_type" in sub:
+                    rope_scaling = {"type": sub["rope_type"]}
+                    break
+            else:
+                rope_scaling = {"type": "default"}
         metadata["config"]["rope_scaling"] = rope_scaling
 
-    # rope_theta: direct attribute or nested in rope_parameters
+    # rope_theta: direct attribute or nested in rope_parameters.
+    # Some models (e.g. Gemma4) use a per-layer-type nested structure:
+    #   rope_parameters = {"sliding_attention": {"rope_theta": 10000, ...},
+    #                      "full_attention": {"rope_theta": 1000000, ...}}
+    # In that case we record the dominant (sliding) theta as the primary value
+    # and leave full pipeline support for dual-RoPE as a future extension.
     rope_theta = None
     if hasattr(text_config, "rope_theta"):
         rope_theta = text_config.rope_theta
     elif hasattr(text_config, "rope_parameters"):
         rope_params = text_config.rope_parameters
-        if isinstance(rope_params, dict) and "rope_theta" in rope_params:
-            rope_theta = rope_params["rope_theta"]
+        if isinstance(rope_params, dict):
+            if "rope_theta" in rope_params:
+                rope_theta = rope_params["rope_theta"]
+            else:
+                # Per-layer-type nested dict: pick the first leaf rope_theta
+                # found. Prefer "sliding_attention" > "full_attention" > first.
+                for key in ("sliding_attention", "full_attention"):
+                    sub = rope_params.get(key, {})
+                    if isinstance(sub, dict) and "rope_theta" in sub:
+                        rope_theta = sub["rope_theta"]
+                        break
+                if rope_theta is None:
+                    for sub in rope_params.values():
+                        if isinstance(sub, dict) and "rope_theta" in sub:
+                            rope_theta = sub["rope_theta"]
+                            break
 
     if rope_theta is None and not is_encoder:
         raise ValueError("failed to identify RoPE theta for decoder model")

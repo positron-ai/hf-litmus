@@ -1446,7 +1446,7 @@ requires-dist = [
     { name = "tiktoken", specifier = ">=0.7.0" },
     { name = "timm", specifier = ">=0.9" },
     { name = "torch", specifier = ">=2.9,<2.10" },
-    { name = "transformers", specifier = ">=5.2,<5.3" },
+    { name = "transformers", specifier = ">=5.2" },
 ]
 
 [[package]]
