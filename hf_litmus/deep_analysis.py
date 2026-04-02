@@ -357,10 +357,12 @@ class DeepAnalyzer:
         )
 
         if result.returncode != 0:
+            # stderr may be empty; stdout often has the real error
+            detail = result.stderr.strip() or result.stdout.strip()
             logger.warning(
-                "Claude Code exited with code %d: %s",
+                "Claude Code exited with code %d:\n%s",
                 result.returncode,
-                result.stderr[:500],
+                detail[:1000],
             )
             # Check for rate limit errors
             combined = result.stdout + "\n" + result.stderr
@@ -373,7 +375,7 @@ class DeepAnalyzer:
             return (
                 f"Claude Code exited with code"
                 f" {result.returncode}:"
-                f" {result.stderr[:200]}"
+                f" {detail[:500]}"
             )
 
         logger.info(
