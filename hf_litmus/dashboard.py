@@ -1799,12 +1799,14 @@ th.sort-desc::after {{ content: ' \u2193'; }}
       body: JSON.stringify({{model: model}}),
     }}).then(function(r) {{
       if (r.status === 409) {{
-        statusEl.textContent = (
-          'An analysis is already running.'
-        );
-        btn.disabled = false;
-        btn.textContent = 'Analyze Model';
-        return;
+        return r.json().then(function(data) {{
+          var busy = data.model || 'another model';
+          statusEl.textContent = (
+            'Already analyzing ' + busy + '.'
+          );
+          btn.disabled = false;
+          btn.textContent = 'Analyze Model';
+        }});
       }}
       return r.json().then(function(data) {{
         if (!r.ok) {{
@@ -2216,12 +2218,15 @@ class _AnalysisTracker:
         self._lines: list[str] = []
         self._proc: subprocess.Popen | None = None
 
-    def submit(self, model_id: str) -> bool:
-        """Start analysis for a model. Returns False if
-        already running."""
+    def submit(self, model_id: str) -> str:
+        """Start analysis for a model.
+
+        Returns empty string on success, or the model ID that
+        is currently being analyzed if busy.
+        """
         with self._lock:
             if self._status == "running":
-                return False
+                return self._model
             self._model = model_id
             self._status = "running"
             self._lines = []  # reset on new submission
@@ -2231,7 +2236,7 @@ class _AnalysisTracker:
             daemon=True,
         )
         t.start()
-        return True
+        return ""
 
     def status(
         self,
@@ -2565,12 +2570,17 @@ class _DashboardHandler(BaseHTTPRequestHandler):
                 '{"error":"model must be provider/name"}',
             )
             return
-        ok = self.analysis_tracker.submit(model)
-        if not ok:
+        busy_model = self.analysis_tracker.submit(model)
+        if busy_model:
             self._respond(
                 409,
                 "application/json",
-                '{"error":"analysis already running"}',
+                json.dumps(
+                    {
+                        "error": "analysis already running",
+                        "model": busy_model,
+                    }
+                ),
             )
             return
         self._respond(
