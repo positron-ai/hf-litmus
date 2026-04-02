@@ -1805,13 +1805,20 @@ th.sort-desc::after {{ content: ' \u2193'; }}
         btn.textContent = 'Analyze Model';
         return;
       }}
-      return r.json();
-    }}).then(function(data) {{
-      if (!data) return;
-      statusEl.textContent = (
-        'Analyzing ' + data.model + '...'
-      );
-      startPolling();
+      return r.json().then(function(data) {{
+        if (!r.ok) {{
+          statusEl.textContent = (
+            'Error: ' + (data.error || r.statusText)
+          );
+          btn.disabled = false;
+          btn.textContent = 'Analyze Model';
+          return;
+        }}
+        statusEl.textContent = (
+          'Analyzing ' + data.model + '...'
+        );
+        startPolling();
+      }});
     }}).catch(function(err) {{
       statusEl.textContent = 'Error: ' + err;
       btn.disabled = false;
