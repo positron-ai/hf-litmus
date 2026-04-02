@@ -4,6 +4,7 @@ import argparse
 import csv
 import json
 import logging
+import os
 import re
 import secrets
 import subprocess
@@ -2102,6 +2103,19 @@ def _render_markdown_page(
 # -- HTTP server ---------------------------------------------------
 
 
+def _subprocess_env() -> dict[str, str]:
+    """Build an environment dict that propagates sys.path.
+
+    Under Nix, sys.executable is the bare Python interpreter
+    and the wrapper-injected site-packages are only present in
+    the running process's sys.path. Passing PYTHONPATH ensures
+    child processes can find all installed packages.
+    """
+    env = os.environ.copy()
+    env["PYTHONPATH"] = os.pathsep.join(sys.path)
+    return env
+
+
 class _RetryTracker:
     """Track background retry jobs."""
 
@@ -2158,6 +2172,7 @@ class _RetryTracker:
                 capture_output=True,
                 text=True,
                 timeout=7200,
+                env=_subprocess_env(),
             )
             if result.returncode == 0:
                 with self._lock:
@@ -2259,6 +2274,7 @@ class _AnalysisTracker:
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
+                env=_subprocess_env(),
             )
             self._proc = proc
             deadline = time.monotonic() + self._TIMEOUT
