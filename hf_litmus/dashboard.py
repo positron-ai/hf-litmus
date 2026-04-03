@@ -14,6 +14,7 @@ import time
 import urllib.parse
 import urllib.request
 from collections import Counter
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -2125,9 +2126,11 @@ class _RetryTracker:
         self,
         output_dir: Path,
         tron_url: str | None = None,
+        on_complete: Callable[[], None] | None = None,
     ) -> None:
         self.output_dir = output_dir
         self.tron_url = tron_url
+        self._on_complete = on_complete
         self._lock = threading.Lock()
         self._jobs: dict[str, str] = {}
         self._pool = ThreadPoolExecutor(
@@ -2180,6 +2183,8 @@ class _RetryTracker:
                 with self._lock:
                     self._jobs[model_id] = "done"
                 logger.info("Retry succeeded: %s", model_id)
+                if self._on_complete:
+                    self._on_complete()
             else:
                 with self._lock:
                     self._jobs[model_id] = "error"
@@ -2209,9 +2214,11 @@ class _AnalysisTracker:
         self,
         output_dir: Path,
         tron_url: str | None = None,
+        on_complete: Callable[[], None] | None = None,
     ) -> None:
         self.output_dir = output_dir
         self.tron_url = tron_url
+        self._on_complete = on_complete
         self._lock = threading.Lock()
         self._model: str = ""
         self._status: str = "idle"  # idle/running/done/error
@@ -2300,6 +2307,8 @@ class _AnalysisTracker:
                     self._lines.append("Analysis completed successfully.")
                     self._lines.append("Committing results...")
                 self._commit_results(model_id)
+                if self._on_complete:
+                    self._on_complete()
                 with self._lock:
                     self._status = "done"
                     self._lines.append("Done.")
@@ -2688,16 +2697,7 @@ def _serve_dashboard(
 ) -> int:
     """Run a local HTTP server with auto-refresh."""
     reports_dir = output_dir / "reports"
-    _DashboardHandler.reports_dir = reports_dir
-    _DashboardHandler.analyses_dir = output_dir / "analyses"
-    _DashboardHandler.retry_tracker = _RetryTracker(
-        output_dir, tron_url=tron_url
-    )
-    _DashboardHandler.analysis_tracker = _AnalysisTracker(
-        output_dir, tron_url=tron_url
-    )
     auth_token = secrets.token_urlsafe(32)
-    _DashboardHandler.auth_token = auth_token
     refresh_secs = refresh_minutes * 60
 
     def refresh() -> None:
@@ -2717,6 +2717,16 @@ def _serve_dashboard(
         )
         _DashboardHandler.json_cache = _render_json(data)
         _DashboardHandler.csv_cache = _render_csv(data)
+
+    _DashboardHandler.reports_dir = reports_dir
+    _DashboardHandler.analyses_dir = output_dir / "analyses"
+    _DashboardHandler.retry_tracker = _RetryTracker(
+        output_dir, tron_url=tron_url, on_complete=refresh
+    )
+    _DashboardHandler.analysis_tracker = _AnalysisTracker(
+        output_dir, tron_url=tron_url, on_complete=refresh
+    )
+    _DashboardHandler.auth_token = auth_token
 
     # Initial load
     refresh()
