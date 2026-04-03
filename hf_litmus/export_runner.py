@@ -76,6 +76,14 @@ class ExportRunner:
         env.pop("PYTHONPATH", None)
         env.pop("PYTHONHOME", None)
 
+        # When deployed via Nix, the project dir is inside the read-only
+        # Nix store.  Point uv at a writable venv location so it doesn't
+        # try to create .venv inside the store.
+        if not os.access(self.python_torch_dir, os.W_OK):
+            venv_dir = Path.home() / ".cache" / "hf-litmus" / "export-venv"
+            venv_dir.mkdir(parents=True, exist_ok=True)
+            env["UV_PROJECT_ENVIRONMENT"] = str(venv_dir)
+
         try:
             result = subprocess.run(
                 cmd,
