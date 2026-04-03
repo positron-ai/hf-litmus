@@ -332,7 +332,21 @@ class DeepAnalyzer:
         else:
             claude_cmd_parts = [claude_cmd]
 
+        # Wrap in `nix develop` so Tron build tools (cabal, ghc,
+        # etc.) are available to Claude Code during analysis.
+        nix_cmd = shutil.which("nix")
+        if nix_cmd and (worktree_path / "flake.nix").exists():
+            nix_prefix = [
+                nix_cmd,
+                "develop",
+                str(worktree_path),
+                "--command",
+            ]
+        else:
+            nix_prefix = []
+
         cmd = [
+            *nix_prefix,
             *claude_cmd_parts,
             "--dangerously-skip-permissions",
             "-p",
