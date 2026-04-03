@@ -9,7 +9,7 @@ description = "Export PyTorch models to Fx graph format for ingestion"
 requires-python = ">=3.10"
 dependencies = [
   "torch>=2.9,<2.10",  # 2.10 breaks our tracing with some weird guard check.
-  "transformers>=5.2",
+  "transformers>=5.5",  # 5.5+ required for gemma4 model type support
   "accelerate>=1.10,<1.11",
   "hf-transfer>=0.1.4",
   "protobuf>=3.20.0",

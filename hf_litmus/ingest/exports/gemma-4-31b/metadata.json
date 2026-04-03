@@ -9,13 +9,13 @@
     }
   },
   "config": {
-    "vocab_size": 262144,
-    "head_dim": 256,
-    "num_hidden_layers": 60,
+    "max_position_embeddings": 262144,
     "num_attention_heads": 32,
     "num_key_value_heads": 16,
-    "max_position_embeddings": 262144,
+    "num_hidden_layers": 60,
+    "head_dim": 256,
     "hidden_size": 5376,
+    "vocab_size": 262144,
     "rope_scaling": {
       "type": "default"
     },
@@ -24,8 +24,8 @@
   },
   "tag_config": {
     "num_experts_per_tok": null,
-    "model_type": "gemma4_text",
     "num_local_experts": null,
+    "model_type": "gemma4_text",
     "kv_lora_rank": null,
     "sliding_window": 1024
   },
@@ -7084,20 +7084,6 @@
       "dtype": "torch.bfloat16"
     },
     {
-      "input_name": "b_model_model_rotary_emb_sliding_attention_inv_freq",
-      "shape": [
-        128
-      ],
-      "dtype": "torch.float32"
-    },
-    {
-      "input_name": "b_model_model_rotary_emb_sliding_attention_original_inv_freq",
-      "shape": [
-        128
-      ],
-      "dtype": "torch.float32"
-    },
-    {
       "input_name": "b_model_model_rotary_emb_full_attention_inv_freq",
       "shape": [
         256
@@ -7110,6 +7096,20 @@
         256
       ],
       "dtype": "torch.float32"
+    },
+    {
+      "input_name": "b_model_model_rotary_emb_sliding_attention_inv_freq",
+      "shape": [
+        128
+      ],
+      "dtype": "torch.float32"
+    },
+    {
+      "input_name": "b_model_model_rotary_emb_sliding_attention_original_inv_freq",
+      "shape": [
+        128
+      ],
+      "dtype": "torch.float32"
     }
   ],
   "constants": [],
@@ -7120,7 +7120,7 @@
     ],
     "s53": [
       "1",
-      "128"
+      "64"
     ]
   },
   "graph": "root.fx",
