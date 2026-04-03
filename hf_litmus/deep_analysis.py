@@ -334,12 +334,15 @@ class DeepAnalyzer:
 
         # Wrap in `nix develop` so Tron build tools (cabal, ghc,
         # etc.) are available to Claude Code during analysis.
+        # Use path: scheme so Nix treats the worktree as a plain
+        # directory — the shallow clone is missing git objects that
+        # git+file:// would try to resolve from flake.lock.
         nix_cmd = shutil.which("nix")
         if nix_cmd and (worktree_path / "flake.nix").exists():
             nix_prefix = [
                 nix_cmd,
                 "develop",
-                str(worktree_path),
+                f"path:{worktree_path}",
                 "--command",
             ]
         else:
