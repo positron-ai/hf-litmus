@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -61,7 +62,28 @@ class IngestRunner:
         ) as tmp_output:
             output_dir = Path(tmp_output)
 
+            # When cabal/ghc aren't on PATH (e.g. Nix deployment),
+            # wrap in `nix develop` using the Tron clone's flake.
+            # Use path: scheme to avoid shallow-clone git errors.
+            tron_root = self.ingest_dir.parent
+            nix_cmd = shutil.which("nix")
+            cabal_available = shutil.which(self.cabal_path) is not None
+            if (
+                not cabal_available
+                and nix_cmd
+                and (tron_root / "flake.nix").exists()
+            ):
+                nix_prefix = [
+                    nix_cmd,
+                    "develop",
+                    f"path:{tron_root}",
+                    "--command",
+                ]
+            else:
+                nix_prefix = []
+
             cmd = [
+                *nix_prefix,
                 self.cabal_path,
                 "run",
                 "ingest",
