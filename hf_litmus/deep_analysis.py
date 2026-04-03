@@ -95,6 +95,11 @@ class DeepAnalyzer:
         branch = f"litmus/{sanitized}"
         analysis_dir = self.output_dir / "analyses" / sanitized
 
+        # Clear stale artifacts so a failed re-run doesn't
+        # surface results from a previous attempt.
+        if analysis_dir.exists():
+            shutil.rmtree(analysis_dir, ignore_errors=True)
+
         logger.info("Starting deep analysis of %s", model_id)
 
         tmpdir = tempfile.mkdtemp(prefix="litmus_analysis_")
