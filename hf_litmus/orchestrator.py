@@ -93,9 +93,8 @@ class LitmusOrchestrator:
         self._retry_set: set[str] = set()
         self._retry_path = config.output_dir / "retry.txt"
 
-        # Lazy Tron clone for ingest (one per session).
+        # Persistent Tron clone for ingest (shared with deep analysis).
         self._tron_clone_lock = threading.Lock()
-        self._tron_tmpdir: str | None = None
         self._tron_clone_path: Path | None = None
 
         self._deep_analyzer = None
@@ -107,6 +106,7 @@ class LitmusOrchestrator:
                 output_dir=config.output_dir,
                 timeout=config.deep_analysis_timeout,
                 consensus_review=config.consensus_review,
+                tron_dir=config.tron_dir,
             )
 
         self._notion_publisher = None
@@ -133,43 +133,53 @@ class LitmusOrchestrator:
                 )
 
     def _get_tron_clone(self) -> Path:
-        """Lazily clone Tron once per session when first needed."""
+        """Return the persistent Tron clone, creating it on first call.
+
+        The clone lives at ``config.tron_dir/.repo`` and is
+        shared with the deep-analysis subsystem.
+        """
         with self._tron_clone_lock:
             if self._tron_clone_path is None:
-                self._tron_tmpdir = tempfile.mkdtemp(prefix="litmus_tron_")
-                tron_path = Path(self._tron_tmpdir) / "tron"
-                logger.info(
-                    "Cloning Tron from %s...",
-                    self.config.tron_url,
-                )
-                result = subprocess.run(
-                    [
-                        "git",
-                        "clone",
-                        "--depth=1",
-                        self.config.tron_url,
-                        str(tron_path),
-                    ],
-                    capture_output=True,
-                    text=True,
-                )
-                if result.returncode != 0:
-                    shutil.rmtree(self._tron_tmpdir, ignore_errors=True)
-                    self._tron_tmpdir = None
-                    raise RuntimeError(
-                        f"Failed to clone Tron: {result.stderr}"
+                clone_path = self.config.tron_dir / ".repo"
+                self.config.tron_dir.mkdir(parents=True, exist_ok=True)
+                if (clone_path / ".git").is_dir():
+                    logger.info(
+                        "Using existing Tron clone at %s",
+                        clone_path,
                     )
-                self._tron_clone_path = tron_path
-                logger.info("Tron cloned to %s", tron_path)
+                else:
+                    logger.info(
+                        "Cloning Tron from %s...",
+                        self.config.tron_url,
+                    )
+                    result = subprocess.run(
+                        [
+                            "git",
+                            "clone",
+                            "--depth=1",
+                            self.config.tron_url,
+                            str(clone_path),
+                        ],
+                        capture_output=True,
+                        text=True,
+                    )
+                    if result.returncode != 0:
+                        raise RuntimeError(
+                            f"Failed to clone Tron: {result.stderr}"
+                        )
+                    logger.info("Tron cloned to %s", clone_path)
+                self._tron_clone_path = clone_path
             return self._tron_clone_path
 
     def cleanup(self) -> None:
-        """Remove the temporary Tron clone if one was created."""
+        """Reset in-memory state.
+
+        The persistent Tron clone and per-model worktrees in
+        ``tron_dir`` are intentionally preserved so users can
+        inspect intermediate analysis results.
+        """
         with self._tron_clone_lock:
-            if self._tron_tmpdir:
-                shutil.rmtree(self._tron_tmpdir, ignore_errors=True)
-                self._tron_tmpdir = None
-                self._tron_clone_path = None
+            self._tron_clone_path = None
 
     def _compute_model_tags(self, trace_dir: Path) -> list[str]:
         """Derive model feature tags from metadata."""

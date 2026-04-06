@@ -92,6 +92,16 @@ def create_dashboard_parser() -> argparse.ArgumentParser:
             " Overrides LITMUS_TRON_URL env var."
         ),
     )
+    parser.add_argument(
+        "--tron-dir",
+        type=str,
+        default=None,
+        help=(
+            "Directory for persistent Tron clone and"
+            " per-model worktrees. Passed to analysis"
+            " subprocesses."
+        ),
+    )
     return parser
 
 
@@ -114,6 +124,7 @@ def dashboard_main(argv: list[str]) -> int:
         args.port,
         args.refresh_interval,
         tron_url=args.tron_url,
+        tron_dir=args.tron_dir,
     )
 
 
@@ -2126,10 +2137,12 @@ class _RetryTracker:
         self,
         output_dir: Path,
         tron_url: str | None = None,
+        tron_dir: str | None = None,
         on_complete: Callable[[], None] | None = None,
     ) -> None:
         self.output_dir = output_dir
         self.tron_url = tron_url
+        self.tron_dir = tron_dir
         self._on_complete = on_complete
         self._lock = threading.Lock()
         self._jobs: dict[str, str] = {}
@@ -2171,6 +2184,8 @@ class _RetryTracker:
             ]
             if self.tron_url:
                 cmd.extend(["--tron-url", self.tron_url])
+            if self.tron_dir:
+                cmd.extend(["--tron-dir", self.tron_dir])
             logger.info("Retry started: %s", model_id)
             result = subprocess.run(
                 cmd,
@@ -2214,10 +2229,12 @@ class _AnalysisTracker:
         self,
         output_dir: Path,
         tron_url: str | None = None,
+        tron_dir: str | None = None,
         on_complete: Callable[[], None] | None = None,
     ) -> None:
         self.output_dir = output_dir
         self.tron_url = tron_url
+        self.tron_dir = tron_dir
         self._on_complete = on_complete
         self._lock = threading.Lock()
         self._model: str = ""
@@ -2277,6 +2294,8 @@ class _AnalysisTracker:
             ]
             if self.tron_url:
                 cmd.extend(["--tron-url", self.tron_url])
+            if self.tron_dir:
+                cmd.extend(["--tron-dir", self.tron_dir])
             logger.info("Analysis started: %s", model_id)
             with self._lock:
                 self._lines.append(f"Starting analysis for {model_id}...")
@@ -2694,6 +2713,7 @@ def _serve_dashboard(
     port: int,
     refresh_minutes: int,
     tron_url: str | None = None,
+    tron_dir: str | None = None,
 ) -> int:
     """Run a local HTTP server with auto-refresh."""
     reports_dir = output_dir / "reports"
@@ -2721,10 +2741,16 @@ def _serve_dashboard(
     _DashboardHandler.reports_dir = reports_dir
     _DashboardHandler.analyses_dir = output_dir / "analyses"
     _DashboardHandler.retry_tracker = _RetryTracker(
-        output_dir, tron_url=tron_url, on_complete=refresh
+        output_dir,
+        tron_url=tron_url,
+        tron_dir=tron_dir,
+        on_complete=refresh,
     )
     _DashboardHandler.analysis_tracker = _AnalysisTracker(
-        output_dir, tron_url=tron_url, on_complete=refresh
+        output_dir,
+        tron_url=tron_url,
+        tron_dir=tron_dir,
+        on_complete=refresh,
     )
     _DashboardHandler.auth_token = auth_token
 

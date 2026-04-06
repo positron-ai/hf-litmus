@@ -73,11 +73,13 @@ class DeepAnalyzer:
         output_dir: Path,
         timeout: int = 900,
         consensus_review: bool = False,
+        tron_dir: Path | None = None,
     ) -> None:
         self.tron_url = tron_url
         self.output_dir = output_dir
         self.timeout = timeout
         self.consensus_review = consensus_review
+        self.tron_dir = tron_dir or Path("./tron")
         self._addendum = load_prompt_template()
 
     def analyze(
@@ -87,9 +89,11 @@ class DeepAnalyzer:
     ) -> AnalysisResult:
         """Run deep analysis on a failed model.
 
-        Clones Tron into a temporary directory, creates a
-        git worktree for the analysis, runs Claude Code,
-        collects results, then removes the temp directory.
+        Uses a persistent Tron clone at ``tron_dir/.repo`` and
+        creates a per-model git worktree at
+        ``tron_dir/<sanitized-model-id>``.  Worktrees are
+        preserved after analysis so the user can inspect the
+        intermediate modifications that Claude Code made.
         """
         sanitized = _sanitize_model_id(model_id)
         branch = f"litmus/{sanitized}"
@@ -102,45 +106,24 @@ class DeepAnalyzer:
 
         logger.info("Starting deep analysis of %s", model_id)
 
-        tmpdir = tempfile.mkdtemp(prefix="litmus_analysis_")
-        tron_path = Path(tmpdir) / "tron"
-        worktree_path = Path(tmpdir) / f"hf-litmus-{sanitized}"
-
         try:
-            logger.info("Cloning Tron for analysis of %s", model_id)
-            clone_result = subprocess.run(
-                [
-                    "git",
-                    "clone",
-                    "--depth=1",
-                    self.tron_url,
-                    str(tron_path),
-                ],
-                capture_output=True,
-                text=True,
-            )
-            if clone_result.returncode != 0:
-                shutil.rmtree(tmpdir, ignore_errors=True)
-                return AnalysisResult(
-                    model_id=model_id,
-                    error=(f"Tron clone failed: {clone_result.stderr}"),
-                )
+            tron_path = self._ensure_tron_clone()
         except Exception as e:
-            shutil.rmtree(tmpdir, ignore_errors=True)
             return AnalysisResult(
                 model_id=model_id,
                 error=f"Tron clone failed: {e}",
             )
 
+        worktree_path = self.tron_dir / sanitized
+
         try:
-            self._setup_worktree(tron_path, worktree_path, branch)
+            self._prepare_worktree(tron_path, worktree_path, branch)
         except Exception as e:
             logger.error(
                 "Failed to create worktree for %s: %s",
                 model_id,
                 e,
             )
-            shutil.rmtree(tmpdir, ignore_errors=True)
             return AnalysisResult(
                 model_id=model_id,
                 error=f"Worktree creation failed: {e}",
@@ -161,9 +144,9 @@ class DeepAnalyzer:
                 model_id,
                 e,
             )
-            shutil.rmtree(tmpdir, ignore_errors=True)
             return AnalysisResult(
                 model_id=model_id,
+                worktree_path=worktree_path,
                 worktree_branch=branch,
                 error=f"Claude Code failed: {e}",
             )
@@ -184,20 +167,115 @@ class DeepAnalyzer:
         if run_error and not ar.error:
             ar.error = run_error
 
-        # Results are already copied to analysis_dir;
-        # clean up the temporary Tron clone.
-        shutil.rmtree(tmpdir, ignore_errors=True)
-        ar.worktree_path = None
+        # Worktree is intentionally preserved for inspection.
+        logger.info(
+            "Worktree preserved at %s (branch %s)",
+            worktree_path,
+            branch,
+        )
 
         return ar
 
-    def _setup_worktree(
+    def _ensure_tron_clone(self) -> Path:
+        """Clone or update the persistent Tron checkout.
+
+        The clone lives at ``tron_dir/.repo``.  On first call
+        it is created with ``git clone --depth=1``.  On
+        subsequent calls the existing clone is fetched and
+        reset to the latest remote HEAD so new worktrees
+        branch from current Tron code.
+        """
+        clone_path = self.tron_dir / ".repo"
+        self.tron_dir.mkdir(parents=True, exist_ok=True)
+
+        if (clone_path / ".git").is_dir():
+            logger.info("Updating existing Tron clone at %s", clone_path)
+            subprocess.run(
+                [
+                    "git",
+                    "fetch",
+                    "--depth=1",
+                    "origin",
+                ],
+                cwd=str(clone_path),
+                capture_output=True,
+                text=True,
+            )
+            subprocess.run(
+                ["git", "reset", "--hard", "FETCH_HEAD"],
+                cwd=str(clone_path),
+                capture_output=True,
+                text=True,
+            )
+        else:
+            logger.info("Cloning Tron to %s", clone_path)
+            result = subprocess.run(
+                [
+                    "git",
+                    "clone",
+                    "--depth=1",
+                    self.tron_url,
+                    str(clone_path),
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(f"Tron clone failed: {result.stderr}")
+
+        return clone_path
+
+    def _prepare_worktree(
         self,
         tron_root: Path,
         worktree_path: Path,
         branch: str,
     ) -> None:
-        """Create a git worktree from a Tron clone."""
+        """Create a fresh git worktree, removing any prior one.
+
+        If a worktree or branch from a previous analysis
+        already exists, they are cleaned up first so the new
+        analysis starts from a clean Tron HEAD.
+        """
+        # Remove existing worktree if present
+        if worktree_path.exists():
+            logger.info(
+                "Removing previous worktree at %s",
+                worktree_path,
+            )
+            subprocess.run(
+                [
+                    "git",
+                    "worktree",
+                    "remove",
+                    "--force",
+                    str(worktree_path),
+                ],
+                cwd=str(tron_root),
+                capture_output=True,
+                text=True,
+            )
+            # Belt-and-suspenders: directory may linger if
+            # the worktree metadata was already gone.
+            if worktree_path.exists():
+                shutil.rmtree(worktree_path, ignore_errors=True)
+
+        # Prune stale worktree bookkeeping
+        subprocess.run(
+            ["git", "worktree", "prune"],
+            cwd=str(tron_root),
+            capture_output=True,
+            text=True,
+        )
+
+        # Delete the branch so it can be recreated from HEAD
+        subprocess.run(
+            ["git", "branch", "-D", branch],
+            cwd=str(tron_root),
+            capture_output=True,
+            text=True,
+        )
+
         result = subprocess.run(
             [
                 "git",
