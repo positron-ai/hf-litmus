@@ -172,6 +172,18 @@ def create_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--tron-dir",
+        type=Path,
+        default=Path("./tron"),
+        help=(
+            "Directory for the persistent Tron clone and"
+            " per-model analysis worktrees. The clone is"
+            " stored in .repo/ and each analyzed model gets"
+            " its own worktree that is preserved for"
+            " inspection after analysis completes."
+        ),
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -213,6 +225,7 @@ def config_from_args(
         notion_parent_page_id=args.notion_parent_id,
         verbose=args.verbose,
         tron_url=_resolve_tron_url(args.tron_url),
+        tron_dir=args.tron_dir,
     )
 
 

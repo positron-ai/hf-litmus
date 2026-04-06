@@ -15,6 +15,7 @@ def test_default_config():
     assert cfg.deep_analysis is True
     assert cfg.max_jobs == 1
     assert cfg.tron_url == DEFAULT_TRON_URL
+    assert cfg.tron_dir == Path("./tron")
 
 
 def test_custom_config():

@@ -9,6 +9,9 @@ build/
 # Runtime output
 litmus-output/
 
+# Persistent Tron clone and per-model analysis worktrees
+tron/
+
 # uv lock files (managed by uv, not version-controlled for export)
 # Note: ingest/export/uv.lock IS version-controlled
 hf_litmus.egg-info/

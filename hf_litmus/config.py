@@ -28,3 +28,4 @@ class LitmusConfig:
     notion_parent_page_id: str | None = None
     verbose: bool = False
     tron_url: str = DEFAULT_TRON_URL
+    tron_dir: Path = Path("./tron")
