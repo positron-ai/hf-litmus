@@ -109,13 +109,10 @@ def dashboard_main(argv: list[str]) -> int:
     parser = create_dashboard_parser()
     args = parser.parse_args(argv)
 
-    reports_dir = args.output_dir / "reports"
-    if not reports_dir.exists():
-        print(
-            f"No reports directory found at {reports_dir}",
-            file=sys.stderr,
-        )
-        return 1
+    # The server rescans on a timer and renders an empty-state page, so a
+    # long-running dashboard must come up before the first run writes a
+    # report. Exiting here left a supervised service restart-looping forever.
+    (args.output_dir / "reports").mkdir(parents=True, exist_ok=True)
 
     return _serve_dashboard(
         args.output_dir,
